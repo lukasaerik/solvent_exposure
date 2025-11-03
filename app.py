@@ -1,4 +1,4 @@
-import sys, os, math
+import sys, os, math, time
 import pandas as pd
 from biopandas.pdb import PandasPdb
 import numpy as np
@@ -10,8 +10,9 @@ from matplotlib.figure import Figure
 import matplotlib.ticker as ticker
 
 from PyQt5.QtCore import Qt, QObject, QThread, pyqtSignal, QTimer, QEventLoop, QEvent
-from PyQt5.QtGui import QImage, QPixmap, QIcon, QPalette, QStandardItem, QFontMetrics
+from PyQt5.QtGui import QImage, QPixmap, QIcon, QPalette, QStandardItem, QFontMetrics, QKeySequence
 from PyQt5.QtWidgets import (
+    QAction,
     QApplication,
     QCheckBox,
     QComboBox,
@@ -31,7 +32,7 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 
-from funcs import preprocess, f2_cutoff, exposure, create_3_vectors, average_score, score_v_localres, features
+from funcs import preprocess, f2_cutoff, create_3_vectors, exposure, average_score, score_v_localres, features
 
 basedir = os.path.dirname(__file__)
 standard_residues = ['LYS', 'LEU', 'THR', 'TYR', 'PRO', 'GLU', 'ASP', 'ILE', 'ALA', 'PHE', 'ARG',
@@ -385,9 +386,9 @@ class ScriptWorker(QObject):
     started = pyqtSignal()
     finished = pyqtSignal(object)   # can emit results
     error = pyqtSignal(str)
-
     ask = pyqtSignal(str)
     answer = pyqtSignal(bool)
+    progress = pyqtSignal(str)
 
     def __init__(self, settings):
         super().__init__()
@@ -403,8 +404,8 @@ class ScriptWorker(QObject):
             out_path = settings.get("folder_out_path")
 
             pre_out = preprocess(pdb_path=pdb_path, pre_path=pre_path, yes_no=self.yes_no)
-            print('Preprocessing complete')
-            result = exposure(pdb_path=pre_out, out_path=out_path)
+            self.progress.emit('Preprocessing complete')
+            result = exposure(pdb_path=pre_out, out_path=out_path, progress_callback=self.progress.emit)
 
             self.finished.emit(result)
         except Exception as e:
@@ -419,6 +420,7 @@ class ScriptWorker(QObject):
             feature = settings.get("feature")
 
             pre_out = preprocess(pdb_path=pdb_path, pre_path=pre_path, yes_no=self.yes_no)
+            self.progress.emit('Preprocessing complete')
             features_out = features(pdb_path=pre_out, feature=feature)
 
             result = pre_out, features_out
@@ -447,20 +449,9 @@ class ScriptWorker(QObject):
             combo = settings.get("combo")
 
             assignment = create_3_vectors(pdb_path=pdb_path, chain1=combo, feature=feature)
-            result = exposure(pdb_path=pdb_path, out_path=out_path, assignment=assignment)
+            result = exposure(pdb_path=pdb_path, out_path=out_path, assignment=assignment, progress_callback=self.progress.emit)
 
             self.finished.emit(result)
-        # except UserWarning:
-        #     settings = self.settings
-        #     pdb_path = settings.get("pdb_path")
-        #     pre_path = settings.get("folder_pre_path")
-        #     feature = settings.get("feature")
-
-        #     pre_out = preprocess(pdb_path=pdb_path, pre_path=pre_path, yes_no=self.yes_no)
-        #     features_out = features(pdb_path=pre_out, feature=feature)
-
-        #     result = pre_out, features_out
-        #     self.finished.emit(result)            
         except Exception as e:
             self.error.emit(str(e))
 
@@ -511,6 +502,19 @@ class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("Solvent Exposure Calculation")
+
+        # --- create file menu if you don't already have one
+        file_menu = self.menuBar().addMenu("&File")
+
+        # Create a Close action that respects platform shortcuts (⌘W on macOS)
+        close_action = QAction("Close", self)
+        close_action.setShortcut(QKeySequence.Close)             # maps to ⌘W on mac
+        close_action.setShortcutContext(Qt.ApplicationShortcut)  # optional: keep it global
+        close_action.triggered.connect(self.close)
+        file_menu.addAction(close_action)
+
+        # Also ensure the action is added to the window so the shortcut works
+        self.addAction(close_action)
 
         # Set up Tabs
         tabs = QTabWidget()
@@ -744,6 +748,9 @@ class MainWindow(QMainWindow):
         self.file_browse.setEnabled(False)
         self.folder_pre_browse.setEnabled(False)
         self.folder_out_browse.setEnabled(False)
+        self.run_adduct_out.setEnabled(False)
+        self.run_adduct_pre.setEnabled(False)
+        self.run_plot.setEnabled(False)
 
         # create worker & thread
         self.thread = QThread()
@@ -752,7 +759,7 @@ class MainWindow(QMainWindow):
 
         # connect signals
         self.thread.started.connect(self.worker.run_simple)
-        # self.worker.started.connect(lambda: self.output.append("Worker started..."))
+        self.worker.progress.connect(self.simple_output.append)
         self.worker.finished.connect(self.on_worker_simple_finished)
         self.worker.error.connect(self.on_worker_simple_error)
         self.worker.finished.connect(self.thread.quit)
@@ -770,8 +777,11 @@ class MainWindow(QMainWindow):
         self.file_browse.setEnabled(True)
         self.folder_pre_browse.setEnabled(True)
         self.folder_out_browse.setEnabled(True)
+        self.run_adduct_out.setEnabled(True)
+        self.run_adduct_pre.setEnabled(True)
+        self.run_plot.setEnabled(True)
         for i in result:
-            self.simple_output.append(f"File {i[0]} saved. \n Min: {i[1]} \n Max: {i[2]}")
+            self.simple_output.append(f"File {i[0]} saved. \n Min: {i[1]:2g} \n Max: {i[2]:2g}")
 
     def on_worker_simple_error(self, err_str):
         self.run_simple.setEnabled(True)
@@ -785,11 +795,14 @@ class MainWindow(QMainWindow):
             self.current_adduct_settings[k] = updated_settings.get(k)
 
         # disable run button while running
+        self.run_simple.setEnabled(False)
+        self.run_plot.setEnable(False)
         self.run_adduct_out.setEnabled(False)
         self.run_adduct_pre.setEnabled(False)
         self.adduct_file_browse.setEnabled(False)
         self.adduct_folder_pre_browse.setEnabled(False)
         self.adduct_folder_out_browse.setEnabled(False)
+        self.run_plot.setEnabled(False)
 
         # create worker & thread
         self.thread = QThread()
@@ -798,6 +811,7 @@ class MainWindow(QMainWindow):
 
         # connect signals
         self.thread.started.connect(self.worker.run_adduct_pre)
+        self.worker.progress.connect(self.adduct_output.append)
         # self.worker.started.connect(lambda: self.output.append("Worker started..."))
         self.worker.finished.connect(self.on_worker_adduct_pre_finished)
         self.worker.error.connect(self.on_worker_adduct_pre_error)
@@ -812,11 +826,14 @@ class MainWindow(QMainWindow):
 
     def on_worker_adduct_pre_finished(self, result):
         # re-enable run button
+        self.run_simple.setEnabled(True)
+        self.run_plot.setEnable(True)
         self.run_adduct_out.setEnabled(True)
         self.run_adduct_pre.setEnabled(True)
         self.adduct_file_browse.setEnabled(True)
         self.adduct_folder_pre_browse.setEnabled(True)
-        self.adduct_folder_out_browse.setEnabled(True)        
+        self.adduct_folder_out_browse.setEnabled(True)
+        self.run_plot.setEnabled(True)     
         pre_out, options = result
         self.current_adduct_settings["pre_out_path"] = pre_out
         self.adduct_output.append(f"File {pre_out} saved. \n There were {len(options)} unique entries under {self.current_adduct_settings.get("feature")}.")
@@ -835,11 +852,14 @@ class MainWindow(QMainWindow):
             self.current_adduct_settings[k] = updated_settings.get(k)
 
         # disable run button while running
+        self.run_simple.setEnabled(False)
+        self.run_plot.setEnable(False)
         self.run_adduct_out.setEnabled(False)
         self.run_adduct_pre.setEnabled(False)
         self.adduct_file_browse.setEnabled(False)
         self.adduct_folder_pre_browse.setEnabled(False)
         self.adduct_folder_out_browse.setEnabled(False)
+        self.run_plot.setEnabled(False)
 
         # create worker & thread
         self.thread = QThread()
@@ -848,6 +868,7 @@ class MainWindow(QMainWindow):
 
         # connect signals
         self.thread.started.connect(self.worker.run_adduct_out)
+        self.worker.progress.connect(self.adduct_output.append)
         # self.worker.started.connect(lambda: self.output.append("Worker started..."))
         self.worker.finished.connect(self.on_worker_adduct_out_finished)
         self.worker.error.connect(self.on_worker_adduct_out_error)
@@ -862,13 +883,16 @@ class MainWindow(QMainWindow):
 
     def on_worker_adduct_out_finished(self, result):
         # re-enable run button
+        self.run_simple.setEnabled(True)
+        self.run_plot.setEnable(True)
         self.run_adduct_out.setEnabled(True)
         self.run_adduct_pre.setEnabled(True)
         self.adduct_file_browse.setEnabled(True)
         self.adduct_folder_pre_browse.setEnabled(True)
         self.adduct_folder_out_browse.setEnabled(True)    
+        self.run_plot.setEnabled(True)
         for i in result:
-            self.adduct_output.append(f"File {i[0]} saved. \n Min: {i[1]} \n Max: {i[2]}")
+            self.adduct_output.append(f"File {i[0]} saved. \n Min: {i[1]:2g} \n Max: {i[2]:2g}")
 
     def on_worker_adduct_out_error(self, err_str):
         self.run_adduct_out.setEnabled(True)
@@ -1035,7 +1059,15 @@ class MainWindow(QMainWindow):
             "defattr_path": self.plot_defattr_edit.text(),
         }
 
-    
+    def closeEvent(self, event):
+        # Optional: confirm before closing
+        # reply = QMessageBox.question(self, "Confirm", "Close the window?",
+        #                              QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
+        # if reply == QMessageBox.Yes:
+        #     event.accept()
+        # else:
+        #     event.ignore()
+        event.accept()
 
 
 app = QApplication(sys.argv)

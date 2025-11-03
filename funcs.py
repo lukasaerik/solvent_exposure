@@ -2,7 +2,7 @@ import numpy as np
 import pandas as pd
 from biopandas.pdb import PandasPdb
 import matplotlib.pyplot as plt
-import os, math
+import os, math, time
 
 basedir = os.path.dirname(__file__)
 standard_residues = ['LYS', 'LEU', 'THR', 'TYR', 'PRO', 'GLU', 'ASP', 'ILE', 'ALA', 'PHE', 'ARG',
@@ -15,6 +15,11 @@ def yes_no(text):
         return True
     else:
         return False
+
+
+def get_readouts(n: int, points: list):
+    for point in points:
+        (2*n - 3 - np.sqrt((2*n - 3)**2 - 4*(2-2*n+n*(n-1)*percent/100))) / 2
 
 
 def preprocess(pdb_path, 
@@ -133,7 +138,8 @@ def exposure(pdb_path,
              assignment=None, 
              max_scores: dict = {'2c50': 26.5}, 
              save_matrix: bool = False, 
-             save_scores_as_vector: bool = False):
+             save_scores_as_vector: bool = False,
+             progress_callback = None):
 
     try:
         filename = pdb_path.rsplit('/',1)[1]
@@ -161,14 +167,33 @@ def exposure(pdb_path,
 
     out = []
 
+    n = len(coords)
     for key in funcs:
-        pair_scores[key] = np.zeros((len(coords), len(coords)))
+        pair_scores[key] = np.zeros((n, n))
 
+    print_percentages = [1,5,25,50,75]
+    print_i = [round((2*n - 3 - np.sqrt((2*n - 3)**2 - 4*(2-2*n+n*(n-1)*percent/100))) / 2) for percent in print_percentages]
+
+    start = time.time()
     for i, coord1 in enumerate(coords):
         for j, coord2 in enumerate(coords[i+1:]):
             distance = np.linalg.norm(coord1-coord2)
             for key, func in funcs.items():
                 pair_scores[key][i,i+j+1] = pair_scores[key][i+j+1,i] = func(distance)
+        if i in print_i:
+            msg = (f"Exposure calculation {print_percentages[print_i.index(i)]}% complete. "
+                   f"Estimated {math.ceil((100 - print_percentages[print_i.index(i)]) * (time.time() - start)/print_percentages[print_i.index(i)])} seconds remaining.")
+
+            if progress_callback:
+                try:
+                    progress_callback(msg)
+                except Exception:
+                    print(msg)
+            else:
+                print(msg)
+
+
+
 
     if assignment == None:
         for key, mat in pair_scores.items():
@@ -176,7 +201,7 @@ def exposure(pdb_path,
             atomic_df.df['ATOM']['b_factor'] = max_scores[key] - temp
             atomic_df.to_pdb(os.path.join(out_path, filename + '_' + key + fileext))
 
-            out += [[os.path.join(out_path, filename + '_' + key + fileext), min(temp), max(temp)]]
+            out += [[os.path.join(out_path, filename + '_' + key + fileext), min(max_scores[key] - temp), max(max_scores[key] - temp)]]
             
             if save_scores_as_vector:
                 np.save(os.path.join(out_path, filename + '_' + key + '_vec.npy', temp))
@@ -191,10 +216,10 @@ def exposure(pdb_path,
                 temp = assigment_vert @ mat
                 atomic_df.df['ATOM']['b_factor'] = max_scores[key] - temp
                 atomic_df.to_pdb(os.path.join(out_path, filename + '_' + k + '_' + key + fileext))
-                out += [[os.path.join(out_path, filename + '_' + k + '_' + key + fileext), min(temp), max(temp)]]
+                out += [[os.path.join(out_path, filename + '_' + k + '_' + key + fileext), min(max_scores[key] - temp), max(max_scores[key] - temp)]]
 
                 if save_scores_as_vector:
-                    np.save(os.path.join(out_path, filename + '_' + k + '_' + key + '_vec.npy'), temp)
+                    np.save(os.path.join(out_path, filename + '_' + k + '_' + key + '_vec.npy'), max_scores[key] - temp)
 
                 if save_matrix and mat_not_saved:
                     np.save(os.path.join(out_path, filename + '_' + key + '_mat.npy'), mat)
