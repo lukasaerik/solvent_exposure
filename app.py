@@ -9,8 +9,8 @@ from matplotlib.backends.backend_qt5agg import NavigationToolbar2QT as Navigatio
 from matplotlib.figure import Figure
 import matplotlib.ticker as ticker
 
-from PyQt5.QtCore import Qt, QObject, QThread, pyqtSignal, QTimer, QEventLoop, QEvent
-from PyQt5.QtGui import QImage, QPixmap, QIcon, QPalette, QStandardItem, QFontMetrics, QKeySequence
+from PyQt5.QtCore import Qt, QObject, QThread, pyqtSignal, QEventLoop, QEvent
+from PyQt5.QtGui import QIcon, QPalette, QStandardItem, QFontMetrics, QKeySequence
 from PyQt5.QtWidgets import (
     QAction,
     QApplication,
@@ -718,7 +718,7 @@ class MainWindow(QMainWindow):
 
         # disable run button while running
         self.run_simple.setEnabled(False)
-        self.run_plot.setEnable(False)
+        self.run_plot.setEnabled(False)
         self.run_adduct_out.setEnabled(False)
         self.run_adduct_pre.setEnabled(False)
         self.adduct_file_browse.setEnabled(False)
@@ -748,7 +748,7 @@ class MainWindow(QMainWindow):
     def on_worker_adduct_pre_finished(self, result):
         # re-enable run button
         self.run_simple.setEnabled(True)
-        self.run_plot.setEnable(True)
+        self.run_plot.setEnabled(True)
         self.run_adduct_out.setEnabled(True)
         self.run_adduct_pre.setEnabled(True)
         self.adduct_file_browse.setEnabled(True)
@@ -773,7 +773,7 @@ class MainWindow(QMainWindow):
 
         # disable run button while running
         self.run_simple.setEnabled(False)
-        self.run_plot.setEnable(False)
+        self.run_plot.setEnabled(False)
         self.run_adduct_out.setEnabled(False)
         self.run_adduct_pre.setEnabled(False)
         self.adduct_file_browse.setEnabled(False)
@@ -803,7 +803,7 @@ class MainWindow(QMainWindow):
     def on_worker_adduct_out_finished(self, result):
         # re-enable run button
         self.run_simple.setEnabled(True)
-        self.run_plot.setEnable(True)
+        self.run_plot.setEnabled(True)
         self.run_adduct_out.setEnabled(True)
         self.run_adduct_pre.setEnabled(True)
         self.adduct_file_browse.setEnabled(True)
@@ -927,6 +927,7 @@ class MainWindow(QMainWindow):
         dlg.setWindowTitle("User Input Required")
         dlg.setText(text)
         dlg.setStandardButtons(QMessageBox.Yes | QMessageBox.No)
+        dlg.setDefaultButton(QMessageBox.Yes)
         dlg.setIcon(QMessageBox.Question)
         button = dlg.exec()
         yn = (button == QMessageBox.Yes)
