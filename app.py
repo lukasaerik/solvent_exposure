@@ -170,7 +170,6 @@ class MatplotlibWidget(QWidget):
     """A QWidget containing a Matplotlib canvas and the standard toolbar."""
     def __init__(self, parent=None, initial_image=None):
         super().__init__(parent)
-        # self.settings = settings
         self.canvas = MplCanvas(self)
         self.toolbar = NavigationToolbar(self.canvas, self)
 
@@ -187,29 +186,12 @@ class MatplotlibWidget(QWidget):
         self._update_reciprocal_y_ticks()      # apply once immediately
         self._connect_tick_callbacks_once()
 
-        # ymin, ymax = self.canvas.ax.get_ylim()
-        
-        # ticks = reciprocal_ticks(ymin, ymax)
-
-        # self.canvas.ax.set_yticks(1/ticks)
-        # self.canvas.ax.set_yticklabels(f'1/{tick:.2g}' for tick in ticks)
-
         self.canvas.figure.tight_layout()
-
-        # self.canvas.mpl_connect("scroll_event", self.on_scroll)
 
         self.canvas.draw_idle()
 
     def update_image(self, array):
         self.canvas.ax.plot(*array)
-
-        # ymin, ymax = self.canvas.ax.get_ylim()
-        
-        # ticks = reciprocal_ticks(ymin, ymax)
-
-        # self.canvas.ax.set_yticks(1/ticks)
-        # self.canvas.ax.set_yticklabels(f'1/{tick:.2g}' for tick in ticks)
-
         self.canvas.draw_idle()
 
     def reciprocal_ticks(self, mn, mx, n = 4, intervals = [1, 2, 5, 10, 20, 50, 100]):
@@ -288,46 +270,6 @@ class MatplotlibWidget(QWidget):
         self.canvas.mpl_connect('draw_event', lambda event: self._update_reciprocal_y_ticks())
         self._recip_callbacks_connected = True
 
-    # def get_current_image(self):
-    #     """Return current image array (a view/copy depending on backend)."""
-    #     return self.im.get_array()
-
-    # def on_click(self, event):
-    #     # event.xdata, event.ydata may be None if click was outside axes
-    #     if event.inaxes is self.canvas.ax:
-    #         print(f"Mouse click at x={event.xdata:.3f}, y={event.ydata:.3f}, button={event.button}")
-
-    # def on_scroll(self, event):
-    #     # example: zoom in/out centered at mouse pos
-    #     base_scale = 1.1
-    #     if event.inaxes is None:
-    #         return
-    #     ax = event.inaxes
-    #     cur_xlim = ax.get_xlim()
-    #     cur_ylim = ax.get_ylim()
-    #     xdata = event.xdata
-    #     ydata = event.ydata
-    #     if event.button == 'up':
-    #         # zoom in
-    #         scale_factor = 1 / base_scale
-    #     else:
-    #         # zoom out
-    #         scale_factor = base_scale
-    #     new_width = (cur_xlim[1] - cur_xlim[0]) * scale_factor
-    #     new_height = (cur_ylim[1] - cur_ylim[0]) * scale_factor
-    #     ax.set_xlim([xdata - new_width * (xdata - cur_xlim[0]) / (cur_xlim[1] - cur_xlim[0]),
-    #                  xdata + new_width * (cur_xlim[1] - xdata) / (cur_xlim[1] - cur_xlim[0])])
-    #     ax.set_ylim([ydata - new_height * (ydata - cur_ylim[0]) / (cur_ylim[1] - cur_ylim[0]),
-    #                  ydata + new_height * (cur_ylim[1] - ydata) / (cur_ylim[1] - cur_ylim[0])])
-        
-    #     ymin, ymax = self.canvas.ax.get_ylim()
-        
-    #     ticks = reciprocal_ticks(ymin, ymax)
-
-    #     ax.set_yticks(1/ticks)
-    #     ax.set_yticklabels(f'1/{tick}' for tick in ticks)
-        
-    #     self.canvas.draw_idle()
 
     def plot_score_vs_resolution(self, x, y, names=None, xlabel=None, ylabel=None):
         # clear old plot
@@ -369,13 +311,6 @@ class MatplotlibWidget(QWidget):
         
         # connect on the FigureCanvas instance
         self.canvas.mpl_connect("motion_notify_event", hover)
-
-        # ymin, ymax = self.canvas.ax.get_ylim()
-        
-        # ticks = reciprocal_ticks(ymin, ymax)
-
-        # self.canvas.ax.set_yticks(1/ticks)
-        # self.canvas.ax.set_yticklabels(f'1/{tick}' for tick in ticks)
 
         self._update_reciprocal_y_ticks()      # apply once immediately
         self._connect_tick_callbacks_once()
@@ -425,17 +360,6 @@ class ScriptWorker(QObject):
 
             result = pre_out, features_out
             self.finished.emit(result)
-        # except UserWarning:
-        #     settings = self.settings
-        #     pdb_path = settings.get("pdb_path")
-        #     pre_path = settings.get("folder_pre_path")
-        #     feature = settings.get("feature")
-
-        #     pre_out = preprocess(pdb_path=pdb_path, pre_path=pre_path, yes_no=self.yes_no)
-        #     features_out = features(pdb_path=pre_out, feature=feature)
-
-        #     result = pre_out, features_out
-        #     self.finished.emit(result)            
         except Exception as e:
             self.error.emit(str(e))
 
@@ -574,7 +498,6 @@ class MainWindow(QMainWindow):
 
         # Bottom: Run Button
         self.run_simple = QPushButton("Calculate")
-        # self.run_simple.setIcon(QIcon(os.path.join(basedir, "icons", "blast.png")))
         self.run_simple.clicked.connect(self.on_run_simple_clicked)
         simple_form.addRow('', self.run_simple)
 
@@ -718,7 +641,6 @@ class MainWindow(QMainWindow):
 
         # Plot button
         self.run_plot = QPushButton("Plot")
-        # self.run_plot.setIcon(QIcon(os.path.join(basedir, "icons", "blast.png")))
         self.run_plot.clicked.connect(self.on_run_plot_clicked)
         bottom_h.addWidget(self.run_plot)
         plot_form.addRow('', bottom_h)
@@ -812,7 +734,6 @@ class MainWindow(QMainWindow):
         # connect signals
         self.thread.started.connect(self.worker.run_adduct_pre)
         self.worker.progress.connect(self.adduct_output.append)
-        # self.worker.started.connect(lambda: self.output.append("Worker started..."))
         self.worker.finished.connect(self.on_worker_adduct_pre_finished)
         self.worker.error.connect(self.on_worker_adduct_pre_error)
         self.worker.finished.connect(self.thread.quit)
@@ -842,7 +763,6 @@ class MainWindow(QMainWindow):
 
     def on_worker_adduct_pre_error(self, err_str):
         self.run_adduct_pre.setEnabled(True)
-        # self.adduct_pre_output.append(f"Worker error: {err_str}")
         QMessageBox.critical(self, "Script error", f"An error occurred:\n{err_str}")
 
     def on_run_adduct_out_clicked(self):
@@ -869,7 +789,6 @@ class MainWindow(QMainWindow):
         # connect signals
         self.thread.started.connect(self.worker.run_adduct_out)
         self.worker.progress.connect(self.adduct_output.append)
-        # self.worker.started.connect(lambda: self.output.append("Worker started..."))
         self.worker.finished.connect(self.on_worker_adduct_out_finished)
         self.worker.error.connect(self.on_worker_adduct_out_error)
         self.worker.finished.connect(self.thread.quit)
@@ -896,7 +815,6 @@ class MainWindow(QMainWindow):
 
     def on_worker_adduct_out_error(self, err_str):
         self.run_adduct_out.setEnabled(True)
-        # self.adduct_out_output.append(f"Worker error: {err_str}")
         QMessageBox.critical(self, "Script error", f"An error occurred:\n{err_str}")
 
     def _on_interactive_toggled(self, state):
@@ -926,7 +844,6 @@ class MainWindow(QMainWindow):
 
         # connect signals
         self.thread.started.connect(self.worker.run_plot)
-        # self.worker.started.connect(lambda: self.output.append("Worker started..."))
         self.worker.finished.connect(self.on_worker_plot_finished)
         self.worker.error.connect(self.on_worker_plot_error)
         self.worker.finished.connect(self.thread.quit)
@@ -950,8 +867,6 @@ class MainWindow(QMainWindow):
             xlabel = result.get('xlabel', None)
             ylabel = result.get('ylabel', None)
 
-            # sc is the MatplotlibWidget instance you created earlier
-            # ensure you stored it as an attribute so you can access it here:
             try:
                 self.sc.plot_score_vs_resolution(x, y, names=names, xlabel=xlabel, ylabel=ylabel)
             except Exception as e:
@@ -967,49 +882,41 @@ class MainWindow(QMainWindow):
 
 
     def _browse_file(self):
-        # open file dialog to choose a file
         fname, _ = QFileDialog.getOpenFileName(self, "Select file", self.file_edit.text() or "", "All Files (*)")
         if fname:
             self.file_edit.setText(fname)
 
     def _browse_adduct_file(self):
-        # open file dialog to choose a file
         fname, _ = QFileDialog.getOpenFileName(self, "Select file", self.adduct_file_edit.text() or "", "All Files (*)")
         if fname:
             self.adduct_file_edit.setText(fname)
 
     def _browse_plot_file(self):
-        # open file dialog to choose a file
         fname, _ = QFileDialog.getOpenFileName(self, "Select file", self.plot_pdb_edit.text() or "", "All Files (*)")
         if fname:
             self.plot_pdb_edit.setText(fname)
 
     def _browse_defattr_file(self):
-        # open file dialog to choose a file
         fname, _ = QFileDialog.getOpenFileName(self, "Select file", self.plot_defattr_edit.text() or "", "All Files (*)")
         if fname:
             self.plot_defattr_edit.setText(fname)
 
     def _browse_pre_folder(self):
-        # open folder dialog
         folder = QFileDialog.getExistingDirectory(self, "Select folder", self.folder_pre_edit.text() or "")
         if folder:
             self.folder_pre_edit.setText(folder)
             
     def _browse_out_folder(self):
-        # open folder dialog
         folder = QFileDialog.getExistingDirectory(self, "Select folder", self.folder_out_edit.text() or "")
         if folder:
             self.folder_out_edit.setText(folder)    
     
     def _browse_adduct_pre_folder(self):
-        # open folder dialog
         folder = QFileDialog.getExistingDirectory(self, "Select folder", self.adduct_folder_pre_edit.text() or "")
         if folder:
             self.adduct_folder_pre_edit.setText(folder)
             
     def _browse_adduct_out_folder(self):
-        # open folder dialog
         folder = QFileDialog.getExistingDirectory(self, "Select folder", self.adduct_folder_out_edit.text() or "")
         if folder:
             self.adduct_folder_out_edit.setText(folder)
@@ -1028,7 +935,7 @@ class MainWindow(QMainWindow):
         self.worker.answer.emit(yn)
 
     def get_simple_settings(self):
-        # Return a dict of settings (strings where appropriate)
+        # Return a dict of settings
         return {
             "pdb_path": self.file_edit.text(),
             "folder_pre_path": self.folder_pre_edit.text(),
@@ -1036,7 +943,6 @@ class MainWindow(QMainWindow):
         }
     
     def get_adduct_settings(self):
-        # Return a dict of settings (strings where appropriate)
         return {
             "pdb_path": self.adduct_file_edit.text(),
             "folder_pre_path": self.adduct_folder_pre_edit.text(),
@@ -1046,7 +952,6 @@ class MainWindow(QMainWindow):
         }
     
     def get_plot_settings(self):
-        # Return a dict of settings (strings where appropriate)
         if self.only_chain:
             return {
             "pdb_path": self.plot_pdb_edit.text(),
@@ -1058,17 +963,6 @@ class MainWindow(QMainWindow):
             "pdb_path": self.plot_pdb_edit.text(),
             "defattr_path": self.plot_defattr_edit.text(),
         }
-
-    def closeEvent(self, event):
-        # Optional: confirm before closing
-        # reply = QMessageBox.question(self, "Confirm", "Close the window?",
-        #                              QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
-        # if reply == QMessageBox.Yes:
-        #     event.accept()
-        # else:
-        #     event.ignore()
-        event.accept()
-
 
 app = QApplication(sys.argv)
 
