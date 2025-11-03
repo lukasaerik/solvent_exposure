@@ -1,6 +1,6 @@
 # Solvent Exposure
 
-Simple tools to handle pdbs and calculate solventexposure scores
+Simple tools to handle pdbs and calculate solvent exposure scores
 
 ## Installation
 ### Running in python
