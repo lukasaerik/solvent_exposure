@@ -46,6 +46,28 @@ It is, in principle, possible to run the GUI version as a standalone app without
 ## Running
 ```funcs.py``` contains all standard functions, and is called by ```app.py``` and ```solvent_exposure.ipynb``` for running in a GUI or notebook, respectively.
 
-```app.py``` generated a GUI. This is the easiest way to use these functions as intended for beginner users. There are only limited options for custom calculations, but the GUI should cover all standard use cases. Note: the interactive plot can be very slow on Mac devices with M-series processors.
+```app.py``` generates a GUI. This is the easiest way to use these functions as intended for beginner users. There are only limited options for custom calculations, but the GUI should cover all standard use cases. Note: the interactive plot can be very slow on Mac devices with M-series processors.
 
 ```solvent_exposure.ipynb``` is a notebook version that shows how to run standard calculations as intended, and a couple advanced options as examples.
+
+As standard, raw (input) pdb files can be placed into ```/pdbs/in/``` and calculated defattr files can be placed into ```/pdbs/out/defattr/```. Preprocessed files are automatically saved to ```/pdbs/preprocessed/``` and files where solvent exposure has been calculated are saved to ```/pdbs/out/```
+
+## Visualising solvent exposure
+
+I use ChimeraX to visualise proteins, and will show example commands below. This should be doable, in principle, in any standard protein visualisation app. For ease of visualisation in standard apps, these functions save pdb files where the b-factor column is used to store solvent exposure scores.
+
+#### To color proteins with standard coloring (assuming the model is #1):
+```
+color byattribute bfactor #1 palette 20,#000000:15,#000088:10,#ff0000:5,#ffff00:0,#ffffff
+```
+
+#### To get local resolution by atom in ChimeraX:
+Ensure the map and model are correctly aligned!
+
+```measure mapvalues #3 atoms #1 attribute locres```
+
+```save 'XXXX\pdbs\out\XXXX.defattr' attrName locres models #1```
+
+(assuming model is #1, map is #2; useful for alignment, and local resolution map is #3)
+
+I would love to integrate visualisation at some point in the GUI, when time allows.
