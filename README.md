@@ -64,9 +64,13 @@ color byattribute bfactor #1 palette 20,#000000:15,#000088:10,#ff0000:5,#ffff00:
 #### To get local resolution by atom in ChimeraX:
 Ensure the map and model are correctly aligned!
 
-```measure mapvalues #3 atoms #1 attribute locres```
+```
+measure mapvalues #3 atoms #1 attribute locres
+```
 
-```save 'XXXX\pdbs\out\XXXX.defattr' attrName locres models #1```
+```
+save 'XXXX\pdbs\out\XXXX.defattr' attrName locres models #1
+```
 
 (assuming model is #1, map is #2; useful for alignment, and local resolution map is #3)
 
