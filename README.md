@@ -31,6 +31,11 @@ If you wish to the .ipynb file in VS code or similar, install ipykernel
 conda install ipykernel
 ```
 
+If you wish to the .ipynb file from command line, install jupyter
+```python
+conda install jupyter
+```
+
 If you wish to compile your code, with your own modifications and default settings, into a standalone app, I recommend installing pyinstaller
 ```python
 conda install -c conda-forge pyinstaller

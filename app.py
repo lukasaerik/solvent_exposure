@@ -535,30 +535,30 @@ class MainWindow(QMainWindow):
         file_row = QHBoxLayout()
         self.file_edit = QLineEdit()
         self.file_edit.setText(self.current_simple_settings.get("pdb_path", ""))
-        file_browse = QPushButton("Browse...")
-        file_browse.clicked.connect(self._browse_file)
+        self.file_browse = QPushButton("Browse...")
+        self.file_browse.clicked.connect(self._browse_file)
         file_row.addWidget(self.file_edit)
-        file_row.addWidget(file_browse)
+        file_row.addWidget(self.file_browse)
         simple_form.addRow("PDB File:", file_row)
 
         # Folder (preproccessed) selection
         folder_pre_row = QHBoxLayout()
         self.folder_pre_edit = QLineEdit()
         self.folder_pre_edit.setText(self.current_simple_settings.get("folder_pre_path", ""))
-        folder_pre_browse = QPushButton("Browse...")
-        folder_pre_browse.clicked.connect(self._browse_pre_folder)
+        self.folder_pre_browse = QPushButton("Browse...")
+        self.folder_pre_browse.clicked.connect(self._browse_pre_folder)
         folder_pre_row.addWidget(self.folder_pre_edit)
-        folder_pre_row.addWidget(folder_pre_browse)
+        folder_pre_row.addWidget(self.folder_pre_browse)
         simple_form.addRow("Preprocessed Folder:", folder_pre_row)
 
         # Folder (out) selection
         folder_out_row = QHBoxLayout()
         self.folder_out_edit = QLineEdit()
         self.folder_out_edit.setText(self.current_simple_settings.get("folder_out_path", ""))
-        folder_out_browse = QPushButton("Browse...")
-        folder_out_browse.clicked.connect(self._browse_out_folder)
+        self.folder_out_browse = QPushButton("Browse...")
+        self.folder_out_browse.clicked.connect(self._browse_out_folder)
         folder_out_row.addWidget(self.folder_out_edit)
-        folder_out_row.addWidget(folder_out_browse)
+        folder_out_row.addWidget(self.folder_out_browse)
         simple_form.addRow("Output Folder:", folder_out_row)
         
         # Output text box
@@ -597,20 +597,20 @@ class MainWindow(QMainWindow):
         adduct_file_row = QHBoxLayout()
         self.adduct_file_edit = QLineEdit()
         self.adduct_file_edit.setText(self.current_adduct_settings.get("pdb_path", ""))
-        adduct_file_browse = QPushButton("Browse...")
-        adduct_file_browse.clicked.connect(self._browse_adduct_file)
+        self.adduct_file_browse = QPushButton("Browse...")
+        self.adduct_file_browse.clicked.connect(self._browse_adduct_file)
         adduct_file_row.addWidget(self.adduct_file_edit)
-        adduct_file_row.addWidget(adduct_file_browse)
+        adduct_file_row.addWidget(self.adduct_file_browse)
         adduct_form.addRow("PDB File:", adduct_file_row)
 
         # Folder (preprocessed) selection
         adduct_folder_pre_row = QHBoxLayout()
         self.adduct_folder_pre_edit = QLineEdit()
         self.adduct_folder_pre_edit.setText(self.current_adduct_settings.get("folder_pre_path", ""))
-        adduct_folder_pre_browse = QPushButton("Browse...")
-        adduct_folder_pre_browse.clicked.connect(self._browse_adduct_pre_folder)
+        self.adduct_folder_pre_browse = QPushButton("Browse...")
+        self.adduct_folder_pre_browse.clicked.connect(self._browse_adduct_pre_folder)
         adduct_folder_pre_row.addWidget(self.adduct_folder_pre_edit)
-        adduct_folder_pre_row.addWidget(adduct_folder_pre_browse)
+        adduct_folder_pre_row.addWidget(self.adduct_folder_pre_browse)
         adduct_form.addRow("Preprocessed Folder:", adduct_folder_pre_row)
 
         # Feature selection
@@ -635,10 +635,10 @@ class MainWindow(QMainWindow):
         adduct_folder_out_row = QHBoxLayout()
         self.adduct_folder_out_edit = QLineEdit()
         self.adduct_folder_out_edit.setText(self.current_adduct_settings.get("folder_out_path", ""))
-        adduct_folder_out_browse = QPushButton("Browse...")
-        adduct_folder_out_browse.clicked.connect(self._browse_adduct_out_folder)
+        self.adduct_folder_out_browse = QPushButton("Browse...")
+        self.adduct_folder_out_browse.clicked.connect(self._browse_adduct_out_folder)
         adduct_folder_out_row.addWidget(self.adduct_folder_out_edit)
-        adduct_folder_out_row.addWidget(adduct_folder_out_browse)
+        adduct_folder_out_row.addWidget(self.adduct_folder_out_browse)
         adduct_form.addRow("Output Folder:", adduct_folder_out_row)
 
         # Bottom: Run Button
@@ -678,19 +678,19 @@ class MainWindow(QMainWindow):
         plot_pdb_row = QHBoxLayout()
         self.plot_pdb_edit = QLineEdit()
         self.plot_pdb_edit.setText(self.current_plot_settings.get("pdb_path", ""))
-        plot_pdb_browse = QPushButton("Browse...")
-        plot_pdb_browse.clicked.connect(self._browse_plot_file)
+        self.plot_pdb_browse = QPushButton("Browse...")
+        self.plot_pdb_browse.clicked.connect(self._browse_plot_file)
         plot_pdb_row.addWidget(self.plot_pdb_edit)
-        plot_pdb_row.addWidget(plot_pdb_browse)
+        plot_pdb_row.addWidget(self.plot_pdb_browse)
         plot_form.addRow("PDB File:", plot_pdb_row)
 
         plot_defattr_row = QHBoxLayout()
         self.plot_defattr_edit = QLineEdit()
         self.plot_defattr_edit.setText(self.current_plot_settings.get("defattr_path", ""))
-        plot_defattr_browse = QPushButton("Browse...")
-        plot_defattr_browse.clicked.connect(self._browse_defattr_file)
+        self.plot_defattr_browse = QPushButton("Browse...")
+        self.plot_defattr_browse.clicked.connect(self._browse_defattr_file)
         plot_defattr_row.addWidget(self.plot_defattr_edit)
-        plot_defattr_row.addWidget(plot_defattr_browse)
+        plot_defattr_row.addWidget(self.plot_defattr_browse)
         plot_form.addRow("defattr File:", plot_defattr_row)
 
         # Only chain(s)?
@@ -734,11 +734,15 @@ class MainWindow(QMainWindow):
 
     def on_run_simple_clicked(self):
         # gather values
-        # settings = tuple(spin.value() for spin in self.spin_boxes)
-        # self.output.append(f"Starting script with values: {vals} and settings: {self.current_settings}")
+        updated_settings = self.get_simple_settings()
+        for k in updated_settings:
+            self.current_simple_settings[k] = updated_settings.get(k)
 
-        # disable run button while running
+        # disable buttons while running
         self.run_simple.setEnabled(False)
+        self.file_browse.setEnabled(False)
+        self.folder_pre_browse.setEnabled(False)
+        self.folder_out_browse.setEnabled(False)
 
         # create worker & thread
         self.thread = QThread()
@@ -762,6 +766,9 @@ class MainWindow(QMainWindow):
     def on_worker_simple_finished(self, result):
         # re-enable run button
         self.run_simple.setEnabled(True)
+        self.file_browse.setEnabled(True)
+        self.folder_pre_browse.setEnabled(True)
+        self.folder_out_browse.setEnabled(True)
         for i in result:
             self.simple_output.append(f"File {i[0]} saved. \n Min: {i[1]} \n Max: {i[2]}")
 
@@ -777,7 +784,11 @@ class MainWindow(QMainWindow):
             self.current_adduct_settings[k] = updated_settings.get(k)
 
         # disable run button while running
+        self.run_adduct_out.setEnabled(False)
         self.run_adduct_pre.setEnabled(False)
+        self.adduct_file_browse.setEnabled(False)
+        self.adduct_folder_pre_browse.setEnabled(False)
+        self.adduct_folder_out_browse.setEnabled(False)
 
         # create worker & thread
         self.thread = QThread()
@@ -800,7 +811,11 @@ class MainWindow(QMainWindow):
 
     def on_worker_adduct_pre_finished(self, result):
         # re-enable run button
+        self.run_adduct_out.setEnabled(True)
         self.run_adduct_pre.setEnabled(True)
+        self.adduct_file_browse.setEnabled(True)
+        self.adduct_folder_pre_browse.setEnabled(True)
+        self.adduct_folder_out_browse.setEnabled(True)        
         pre_out, options = result
         self.current_adduct_settings["pre_out_path"] = pre_out
         self.adduct_output.append(f"File {pre_out} saved. \n There were {len(options)} unique entries under {self.current_adduct_settings.get("feature")}.")
@@ -820,6 +835,10 @@ class MainWindow(QMainWindow):
 
         # disable run button while running
         self.run_adduct_out.setEnabled(False)
+        self.run_adduct_pre.setEnabled(False)
+        self.adduct_file_browse.setEnabled(False)
+        self.adduct_folder_pre_browse.setEnabled(False)
+        self.adduct_folder_out_browse.setEnabled(False)
 
         # create worker & thread
         self.thread = QThread()
@@ -843,6 +862,10 @@ class MainWindow(QMainWindow):
     def on_worker_adduct_out_finished(self, result):
         # re-enable run button
         self.run_adduct_out.setEnabled(True)
+        self.run_adduct_pre.setEnabled(True)
+        self.adduct_file_browse.setEnabled(True)
+        self.adduct_folder_pre_browse.setEnabled(True)
+        self.adduct_folder_out_browse.setEnabled(True)    
         for i in result:
             self.adduct_output.append(f"File {i[0]} saved. \n Min: {i[1]} \n Max: {i[2]}")
 
@@ -979,9 +1002,20 @@ class MainWindow(QMainWindow):
         # worker.answer is a signal defined in worker; safe to emit from main thread
         self.worker.answer.emit(yn)
 
+    def get_simple_settings(self):
+        # Return a dict of settings (strings where appropriate)
+        return {
+            "pdb_path": self.file_edit.text(),
+            "folder_pre_path": self.folder_pre_edit.text(),
+            "folder_out_path": self.folder_out_edit.text(),
+        }
+    
     def get_adduct_settings(self):
         # Return a dict of settings (strings where appropriate)
         return {
+            "pdb_path": self.adduct_file_edit.text(),
+            "folder_pre_path": self.adduct_folder_pre_edit.text(),
+            "folder_out_path": self.adduct_folder_out_edit.text(),
             "feature": self.adduct_feature.currentText(),
             "combo": self.combo.currentData(),
         }
