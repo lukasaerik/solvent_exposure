@@ -17,11 +17,6 @@ def yes_no(text):
         return False
 
 
-def get_readouts(n: int, points: list):
-    for point in points:
-        (2*n - 3 - np.sqrt((2*n - 3)**2 - 4*(2-2*n+n*(n-1)*percent/100))) / 2
-
-
 def preprocess(pdb_path, 
                pre_path,
                yes_no = yes_no,
