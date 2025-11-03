@@ -26,12 +26,12 @@ conda install -c conda-forge biopandas
 conda install matplotlib
 ```
 
-If you wish to the .ipynb file in VS code or similar, install ipykernel
+If you wish to run the .ipynb file in VS code or similar, install ipykernel
 ```python
 conda install ipykernel
 ```
 
-If you wish to the .ipynb file from command line, install jupyter
+If you wish to run the .ipynb file from command line, install jupyter
 ```python
 conda install jupyter
 ```

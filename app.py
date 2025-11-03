@@ -403,6 +403,7 @@ class ScriptWorker(QObject):
             out_path = settings.get("folder_out_path")
 
             pre_out = preprocess(pdb_path=pdb_path, pre_path=pre_path, yes_no=self.yes_no)
+            print('Preprocessing complete')
             result = exposure(pdb_path=pre_out, out_path=out_path)
 
             self.finished.emit(result)
