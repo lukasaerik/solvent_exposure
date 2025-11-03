@@ -3,7 +3,7 @@
 Simple tools to handle pdbs and calculate solvent exposure scores
 
 ## Installation
-### Running in python
+### In python
 
 I recommend running this in its own environment. I will give examples for Anaconda, but use your own systems and pip if preferred.
 
@@ -42,3 +42,10 @@ It is, in principle, possible to run the GUI version as a standalone app without
 * It is not possible to change default settings
 * There are currently a limited number of calculations that can be run in GUI mode. I hope to make it more flexible as time allows, but running custom calculations for your own purposes is done more easily in python
 * Externally generated .exe files are sometimes flagged as a potential virus 
+
+## Running
+```funcs.py``` contains all standard functions, and is called by ```app.py``` and ```solvent_exposure.ipynb``` for running in a GUI or notebook, respectively.
+
+```app.py``` generated a GUI. This is the easiest way to use these functions as intended for beginner users. There are only limited options for custom calculations, but the GUI should cover all standard use cases. Note: the interactive plot can be very slow on Mac devices with M-series processors.
+
+```solvent_exposure.ipynb``` is a notebook version that shows how to run standard calculations as intended, and a couple advanced options as examples.
