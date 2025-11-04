@@ -1,6 +1,7 @@
 import numpy as np
 import pandas as pd
 from biopandas.pdb import PandasPdb
+from biopandas.mmcif import PandasMmcif
 import matplotlib.pyplot as plt
 import os, math, time, psutil
 from scipy.spatial.distance import pdist, squareform
@@ -22,7 +23,6 @@ def yes_no(text):
 def preprocess(pdb_path, 
                pre_path,
                yes_no = yes_no,
-               feature: str = 'atom_name', 
                include: list = ['C', 'N', 'O', 'S'], 
                redefine_chains: bool = False):
     
@@ -34,17 +34,35 @@ def preprocess(pdb_path,
         except IndexError:
             filename = pdb_path
 
+    if filename.split(".",1)[1] in ['pdb', 'pdb.gz', 'ent', 'ent.gz']:
+        atomic_df = PandasPdb().read_pdb(pdb_path)
+        atomic_df = atomic_df.get_model(1)
+    elif filename.split(".",1)[1] in ['cif', 'cif.gz']:
+        atomic_df = PandasMmcif().read_mmcif(pdb_path)
+        atomic_df = atomic_df.convert_to_pandas_pdb()
+    else:
+        raise ValueError('Wrong file format; allowed file formats are .pdb, .pdb.gz, .ent, .ent.gz, .cif, .cif.gz')
+    
+    atomic_df.df['ATOM'] = pd.concat([atomic_df.df['ATOM'], atomic_df.df['HETATM']], ignore_index = True)
+    atomic_df.df['ATOM']['record_name'] = 'ATOM'
+    atomic_df.df['HETATM'] = atomic_df.df['HETATM'].iloc[0:0]
+    
+    try:
+        atomic_df.df['ATOM'] = atomic_df.df['ATOM'].drop('model_id', axis = 1)
+    except KeyError:
+        pass
 
-    atomic_df = PandasPdb().read_pdb(pdb_path)
+    try:
+        atomic_df.df['ATOM']['segment_id'] = ''
+    except KeyError:
+        pass
 
-    atomic_df = atomic_df.get_model(1)
+    try:
+        atomic_df.df['ATOM']['element_symbol'] = ''
+    except KeyError:
+        pass
 
-    atomic_df.df['ATOM'] = atomic_df.df['ATOM'].drop('model_id', axis = 1)
-
-    atomic_df.df['ATOM']['segment_id'] = ''
-    atomic_df.df['ATOM']['element_symbol'] = ''
-
-    temp = atomic_df.df['ATOM'][feature].eq(include[0])
+    temp = atomic_df.df['ATOM']['atom_name'].eq(include[0])
 
     split_occupancy = []
     added_residues = []
@@ -58,7 +76,7 @@ def preprocess(pdb_path,
 
     for i, x in atomic_df.df['ATOM'].iterrows():
         if x['residue_name'] in standard_residues or x['residue_name'] in added_residues:
-            if x[feature][0] in include and x['occupancy'] > 0.5:
+            if x['atom_name'][0] in include and x['occupancy'] > 0.5:
             
                 temp.loc[i] = True
 
@@ -70,7 +88,7 @@ def preprocess(pdb_path,
                     atomic_df.df['ATOM'].loc[i, 'chain_id'] = chr(chain)
                     residue_counter = x['residue_number']
 
-            if x[feature][0] in include and x['occupancy'] == 0.5:
+            if x['atom_name'][0] in include and x['occupancy'] == 0.5:
                 if x['residue_number'] >= residue_counter and redefine_chains:
                     atomic_df.df['ATOM'].loc[i, 'chain_id'] = chr(chain)
                     residue_counter = x['residue_number']
@@ -88,7 +106,7 @@ def preprocess(pdb_path,
             yn = yes_no(f"Would you like to include residue {x['residue_name']}?")
             if yn:
                 added_residues += [x['residue_name']]
-                if x[feature][0] in include and x['occupancy'] > 0.5:
+                if x['atom_name'][0] in include and x['occupancy'] > 0.5:
                 
                     temp.loc[i] = True
 
@@ -100,7 +118,7 @@ def preprocess(pdb_path,
                         atomic_df.df['ATOM'].loc[i, 'chain_id'] = chr(chain)
                         residue_counter = x['residue_number']
 
-                if x[feature][0] in include and x['occupancy'] == 0.5:
+                if x['atom_name'][0] in include and x['occupancy'] == 0.5:
                     if x['residue_number'] >= residue_counter and redefine_chains:
                         atomic_df.df['ATOM'].loc[i, 'chain_id'] = chr(chain)
                         residue_counter = x['residue_number']
@@ -117,8 +135,10 @@ def preprocess(pdb_path,
                 temp.loc[i] = False
 
     atomic_df.df['ATOM'] = atomic_df.df['ATOM'][temp]
+    filename = filename.split(".",1)[0]+'.pdb'
     out_path = os.path.join(pre_path, filename)
     atomic_df.to_pdb(out_path)
+
     return out_path
 
 
@@ -166,15 +186,23 @@ def exposure_old(pdb_path,
         except IndexError:
             filename = pdb_path
             
-    filename, fileext = filename.rsplit('.',1)
+    filename, fileext = filename.split('.',1)
+
+    if fileext in ['pdb', 'pdb.gz', 'ent', 'ent.gz']:
+        atomic_df = PandasPdb().read_pdb(pdb_path)
+        atomic_df = atomic_df.get_model(1)
+        
+    elif fileext in ['cif', 'cif.gz']:
+        atomic_df = PandasMmcif().read_mmcif(pdb_path)
+        atomic_df = atomic_df.convert_to_pandas_pdb()
+    else:
+        raise ValueError('Wrong file format; allowed file formats are .pdb, .pdb.gz, .ent, .ent.gz, .cif, .cif.gz')
     fileext = '.' + fileext 
-
-    atomic_df = PandasPdb().read_pdb(pdb_path)
-
-    atomic_df = atomic_df.get_model(1)
-
-    atomic_df.df['ATOM'] = atomic_df.df['ATOM'].drop('model_id', axis = 1)
-
+    
+    try:
+        atomic_df.df['ATOM'] = atomic_df.df['ATOM'].drop('model_id', axis = 1)
+    except KeyError:
+        pass
 
     coords = np.vstack((atomic_df.df['ATOM']['x_coord'].to_numpy(), 
                         atomic_df.df['ATOM']['y_coord'].to_numpy(), 
@@ -216,9 +244,9 @@ def exposure_old(pdb_path,
         for key, mat in pair_scores.items():
             temp = np.sum(mat, axis = 0)
             atomic_df.df['ATOM']['b_factor'] = max_scores[key] - temp
-            atomic_df.to_pdb(os.path.join(out_path, filename + '_' + key + fileext))
+            atomic_df.to_pdb(os.path.join(out_path, filename + '_' + key + '.pdb'))
 
-            out += [[os.path.join(out_path, filename + '_' + key + fileext), min(max_scores[key] - temp), max(max_scores[key] - temp)]]
+            out += [[os.path.join(out_path, filename + '_' + key + '.pdb'), min(max_scores[key] - temp), max(max_scores[key] - temp)]]
             
             if save_scores_as_vector:
                 np.save(os.path.join(out_path, filename + '_' + key + '_vec.npy', temp))
@@ -232,8 +260,8 @@ def exposure_old(pdb_path,
             for key, mat in pair_scores.items():
                 temp = assigment_vert @ mat
                 atomic_df.df['ATOM']['b_factor'] = max_scores[key] - temp
-                atomic_df.to_pdb(os.path.join(out_path, filename + '_' + k + '_' + key + fileext))
-                out += [[os.path.join(out_path, filename + '_' + k + '_' + key + fileext), min(max_scores[key] - temp), max(max_scores[key] - temp)]]
+                atomic_df.to_pdb(os.path.join(out_path, filename + '_' + k + '_' + key + '.pdb'))
+                out += [[os.path.join(out_path, filename + '_' + k + '_' + key + '.pdb'), min(max_scores[key] - temp), max(max_scores[key] - temp)]]
 
                 if save_scores_as_vector:
                     np.save(os.path.join(out_path, filename + '_' + k + '_' + key + '_vec.npy'), max_scores[key] - temp)
@@ -262,15 +290,23 @@ def exposure(pdb_path,
         except IndexError:
             filename = pdb_path
             
-    filename, fileext = filename.rsplit('.',1)
+    filename, fileext = filename.split('.',1)
+
+    if fileext in ['pdb', 'pdb.gz', 'ent', 'ent.gz']:
+        atomic_df = PandasPdb().read_pdb(pdb_path)
+        atomic_df = atomic_df.get_model(1)
+        
+    elif fileext in ['cif', 'cif.gz']:
+        atomic_df = PandasMmcif().read_mmcif(pdb_path)
+        atomic_df = atomic_df.convert_to_pandas_pdb()
+    else:
+        raise ValueError('Wrong file format; allowed file formats are .pdb, .pdb.gz, .ent, .ent.gz, .cif, .cif.gz')
     fileext = '.' + fileext 
 
-    atomic_df = PandasPdb().read_pdb(pdb_path)
-
-    atomic_df = atomic_df.get_model(1)
-
-    atomic_df.df['ATOM'] = atomic_df.df['ATOM'].drop('model_id', axis = 1)
-
+    try:
+        atomic_df.df['ATOM'] = atomic_df.df['ATOM'].drop('model_id', axis = 1)
+    except KeyError:
+        pass
 
     coords = np.vstack((atomic_df.df['ATOM']['x_coord'].to_numpy(), 
                         atomic_df.df['ATOM']['y_coord'].to_numpy(), 
@@ -278,7 +314,7 @@ def exposure(pdb_path,
     pair_scores = {}
     out = []
 
-    start = time.time()
+    # start = time.time()
     n = coords.shape[0]
     d_cond = pdist(coords)  
     for key, func in funcs.items():             # condensed distances (len m = n*(n-1)/2)
@@ -295,11 +331,11 @@ def exposure(pdb_path,
                 sums[i+1: n] += vals[idx: idx + l]   # vector add to the other atoms
                 idx += l
                 
-            elapsed = time.time()-start
+            # elapsed = time.time()-start
             atomic_df.df['ATOM']['b_factor'] = max_scores[key] - sums
-            atomic_df.to_pdb(os.path.join(out_path, filename + '_' + key + fileext))
+            atomic_df.to_pdb(os.path.join(out_path, filename + '_' + key + '.pdb'))
 
-            out += [[os.path.join(out_path, filename + '_' + key + fileext), min(max_scores[key] - sums), max(max_scores[key] - sums), elapsed, len(coords)]]
+            out += [[os.path.join(out_path, filename + '_' + key + '.pdb'), min(max_scores[key] - sums), max(max_scores[key] - sums)]]#, elapsed, len(coords)]]
     
         elif type(assignment) == dict:
             for k, assignment_vert in assignment.items():
@@ -317,10 +353,10 @@ def exposure(pdb_path,
                         sums[i+1: n] += block * assignment_vert[i]
                     idx += l
 
-                elapsed = time.time()-start
+                # elapsed = time.time()-start
                 atomic_df.df['ATOM']['b_factor'] = max_scores[key] - sums
-                atomic_df.to_pdb(os.path.join(out_path, filename + '_' + k + '_' + key + fileext))
-                out += [[os.path.join(out_path, filename + '_' + k + '_' + key + fileext), min(max_scores[key] - sums), max(max_scores[key] - sums), elapsed, len(coords)]]
+                atomic_df.to_pdb(os.path.join(out_path, filename + '_' + k + '_' + key + '.pdb'))
+                out += [[os.path.join(out_path, filename + '_' + k + '_' + key + '.pdb'), min(max_scores[key] - sums), max(max_scores[key] - sums)]]#, elapsed, len(coords)]]
 
         else:
             raise TypeError("assignment must be None or dict")
@@ -328,54 +364,7 @@ def exposure(pdb_path,
 
 
 def average_score(pdb_path):
-    if pdb_path[-3:] == 'pdb':
-        atomic_df = PandasPdb().read_pdb(pdb_path)
-
-        atomic_df = atomic_df.get_model(1)
-
-        atomic_df.df['ATOM'] = atomic_df.df['ATOM'].drop('model_id', axis = 1)
-
-        current_residue = atomic_df.df['ATOM'].iloc[0].loc['chain_id'] + str(atomic_df.df['ATOM'].iloc[0].loc['residue_number'])
-
-        scores = np.zeros(len(atomic_df.df['ATOM']))
-        backbone_scores = np.zeros(len(atomic_df.df['ATOM']))
-
-        atom_count = 0
-        score = 0
-        backbone_atom_count = 0
-        backbone_score = 0
-
-        for i, x in atomic_df.df['ATOM'].iterrows():
-            if x['chain_id'] + str(x['residue_number']) == current_residue:
-                atom_count+=1
-                score+=x['b_factor']
-                if x['atom_name'] in ['C', 'N', 'O', 'CA']:
-                    backbone_atom_count+=1
-                    backbone_score+=x['b_factor']
-            else:
-                for j in range(atom_count):
-                    scores[i-j-1] = score / atom_count
-                    if backbone_atom_count != 0:
-                        backbone_scores[i-j-1] = backbone_score / backbone_atom_count
-
-                atom_count=1
-                score=x['b_factor']
-                current_residue = x['chain_id'] + str(x['residue_number'])
-
-                if x['atom_name'] in ['C', 'N', 'O', 'CA']:
-                    backbone_atom_count=1
-                    backbone_score=x['b_factor']
-                else:
-                    backbone_atom_count=0
-                    backbone_score=0
-
-        atomic_df.df['ATOM']['b_factor'] = scores
-        atomic_df.to_pdb(pdb_path[:-4] + '_avgbyres.pdb')
-
-        atomic_df.df['ATOM']['b_factor'] = backbone_scores
-        atomic_df.to_pdb(pdb_path[:-4] + '_avgbyresbb.pdb')
-
-    elif pdb_path[-7:] == 'defattr':
+    if pdb_path[-7:] == 'defattr':
         localres = pd.read_csv(pdb_path, sep = '\t', header = 3, usecols = [1,2], names = ['atom', 'localres']).set_index('atom')
 
         current_residue = localres.iloc[0].name.split('@')[0]
@@ -421,11 +410,81 @@ def average_score(pdb_path):
         score_df['localres'] = backbone_scores
         score_df.to_csv(pdb_path[:-8] + '_avgbyresbb.defattr', sep = '\t', header=['attribute: locres \nrecipient: atoms \nmatch mode: 1-to-1', '', ''], index=False)
 
+    else:
+        fileext = pdb_path.split('.',1)[1]
+        if fileext in ['pdb', 'pdb.gz', 'ent', 'ent.gz']:
+            atomic_df = PandasPdb().read_pdb(pdb_path)
+            atomic_df = atomic_df.get_model(1)
+            
+        elif fileext in ['cif', 'cif.gz']:
+            atomic_df = PandasMmcif().read_mmcif(pdb_path)
+            atomic_df = atomic_df.convert_to_pandas_pdb()
+        else:
+            raise ValueError('Wrong file format; allowed file formats are .pdb, .pdb.gz, .ent, .ent.gz, .cif, .cif.gz')
 
-def create_3_vectors(pdb_path, chain1, feature):
-    atomic_df = PandasPdb().read_pdb(pdb_path)
-    atomic_df = atomic_df.get_model(1)
-    atomic_df.df['ATOM'] = atomic_df.df['ATOM'].drop('model_id', axis = 1)
+        try:
+            atomic_df.df['ATOM'] = atomic_df.df['ATOM'].drop('model_id', axis = 1)
+        except KeyError:
+            pass
+
+        current_residue = atomic_df.df['ATOM'].iloc[0].loc['chain_id'] + str(atomic_df.df['ATOM'].iloc[0].loc['residue_number'])
+
+        scores = np.zeros(len(atomic_df.df['ATOM']))
+        backbone_scores = np.zeros(len(atomic_df.df['ATOM']))
+
+        atom_count = 0
+        score = 0
+        backbone_atom_count = 0
+        backbone_score = 0
+
+        for i, x in atomic_df.df['ATOM'].iterrows():
+            if x['chain_id'] + str(x['residue_number']) == current_residue:
+                atom_count+=1
+                score+=x['b_factor']
+                if x['atom_name'] in ['C', 'N', 'O', 'CA']:
+                    backbone_atom_count+=1
+                    backbone_score+=x['b_factor']
+            else:
+                for j in range(atom_count):
+                    scores[i-j-1] = score / atom_count
+                    if backbone_atom_count != 0:
+                        backbone_scores[i-j-1] = backbone_score / backbone_atom_count
+
+                atom_count=1
+                score=x['b_factor']
+                current_residue = x['chain_id'] + str(x['residue_number'])
+
+                if x['atom_name'] in ['C', 'N', 'O', 'CA']:
+                    backbone_atom_count=1
+                    backbone_score=x['b_factor']
+                else:
+                    backbone_atom_count=0
+                    backbone_score=0
+
+        atomic_df.df['ATOM']['b_factor'] = scores
+        atomic_df.to_pdb(pdb_path[:-4] + '_avgbyres.pdb')
+
+        atomic_df.df['ATOM']['b_factor'] = backbone_scores
+        atomic_df.to_pdb(pdb_path[:-4] + '_avgbyresbb.pdb')
+
+
+def create_3_vectors(pdb_path, chain1, feature):          
+    fileext = pdb_path.split('.',1)[1]
+    if fileext in ['pdb', 'pdb.gz', 'ent', 'ent.gz']:
+        atomic_df = PandasPdb().read_pdb(pdb_path)
+        atomic_df = atomic_df.get_model(1)
+        
+    elif fileext in ['cif', 'cif.gz']:
+        atomic_df = PandasMmcif().read_mmcif(pdb_path)
+        atomic_df = atomic_df.convert_to_pandas_pdb()
+    else:
+        raise ValueError('Wrong file format; allowed file formats are .pdb, .pdb.gz, .ent, .ent.gz, .cif, .cif.gz')
+    
+    try:
+        atomic_df.df['ATOM'] = atomic_df.df['ATOM'].drop('model_id', axis = 1)
+    except KeyError:
+        pass
+
 
     out_tot = np.ones(len(atomic_df.df['ATOM']))
 
@@ -462,9 +521,21 @@ def score_v_localres(pdb_path,
         out = np.zeros((len(localres), 2))
         names = list(np.zeros(len(localres)).astype(int).astype(str))
 
-        atomic_df = PandasPdb().read_pdb(pdb_path)
-        atomic_df = atomic_df.get_model(1)
-        atomic_df.df['ATOM'] = atomic_df.df['ATOM'].drop('model_id', axis = 1)
+        fileext = pdb_path.split('.',1)[1]
+        if fileext in ['pdb', 'pdb.gz', 'ent', 'ent.gz']:
+            atomic_df = PandasPdb().read_pdb(pdb_path)
+            atomic_df = atomic_df.get_model(1)
+            
+        elif fileext in ['cif', 'cif.gz']:
+            atomic_df = PandasMmcif().read_mmcif(pdb_path)
+            atomic_df = atomic_df.convert_to_pandas_pdb()
+        else:
+            raise ValueError('Wrong file format; allowed file formats are .pdb, .pdb.gz, .ent, .ent.gz, .cif, .cif.gz')
+
+        try:
+            atomic_df.df['ATOM'] = atomic_df.df['ATOM'].drop('model_id', axis = 1)
+        except KeyError:
+            pass
         df = atomic_df.df['ATOM'].set_index(['chain_id','residue_number', 'atom_name'])
 
         i = 0
@@ -543,9 +614,16 @@ def score_v_localres(pdb_path,
 
         names = list(np.zeros(len(localres)).astype(int).astype(str))
 
-        atomic_df = PandasPdb().read_pdb(pdb_path)
-
-        atomic_df = atomic_df.get_model(1)
+        fileext = pdb_path.split('.',1)[1]
+        if fileext in ['pdb', 'pdb.gz', 'ent', 'ent.gz']:
+            atomic_df = PandasPdb().read_pdb(pdb_path)
+            atomic_df = atomic_df.get_model(1)
+            
+        elif fileext in ['cif', 'cif.gz']:
+            atomic_df = PandasMmcif().read_mmcif(pdb_path)
+            atomic_df = atomic_df.convert_to_pandas_pdb()
+        else:
+            raise ValueError('Wrong file format; allowed file formats are .pdb, .pdb.gz, .ent, .ent.gz, .cif, .cif.gz')
 
         df = atomic_df.df['ATOM'].set_index(['chain_id','residue_number', 'atom_name'])
 
@@ -633,9 +711,21 @@ def score_v_localres(pdb_path,
 
 
 def features(pdb_path, feature):
-    atomic_df = PandasPdb().read_pdb(pdb_path)
-    atomic_df = atomic_df.get_model(1)
-    atomic_df.df['ATOM'] = atomic_df.df['ATOM'].drop('model_id', axis = 1)
+    fileext = pdb_path.split('.',1)[1]
+    if fileext in ['pdb', 'pdb.gz', 'ent', 'ent.gz']:
+        atomic_df = PandasPdb().read_pdb(pdb_path)
+        atomic_df = atomic_df.get_model(1)
+        
+    elif fileext in ['cif', 'cif.gz']:
+        atomic_df = PandasMmcif().read_mmcif(pdb_path)
+        atomic_df = atomic_df.convert_to_pandas_pdb()
+    else:
+        raise ValueError('Wrong file format; allowed file formats are .pdb, .pdb.gz, .ent, .ent.gz, .cif, .cif.gz')
+
+    try:
+        atomic_df.df['ATOM'] = atomic_df.df['ATOM'].drop('model_id', axis = 1)
+    except KeyError:
+        pass
 
     out = []
 
@@ -667,4 +757,5 @@ def max_n_for_full_matrix(fraction_of_avail=0.5, dtype=np.float64):
     max_bytes = int(avail * fraction_of_avail)
     # n^2 * bytes_per_element <= max_bytes  ->  n <= sqrt(max_bytes/bytes_per_element)
     return int(math.floor(math.sqrt(max_bytes / bytes_per_element)))
+
 
