@@ -181,18 +181,10 @@ class MatplotlibWidget(QWidget):
         if initial_image is None:
             initial_image = [[0, 5, 10, 15, 20], [0.5, 0.4, 0.3, 0.2, 0.1]]
 
-        # draw initial plot (low-cost)
         self.canvas.ax.plot(*initial_image)
-
-        # state used for debouncing
         self._last_recip_update = 0.0
-
-        # keep a reference to the current mplcursors cursor for later cleanup
         self._mpl_cursor = None
-
-        # Hook callbacks once (debounced inside)
         self._connect_tick_callbacks_once()
-
         self.canvas.figure.tight_layout()
         self.canvas.draw_idle()
 
@@ -234,7 +226,6 @@ class MatplotlibWidget(QWidget):
         ymin, ymax = ax.get_ylim()
         if ymax <= 0:
             ax.yaxis.set_major_formatter(ticker.FuncFormatter(lambda y, pos: f"{y:g}"))
-            # one draw_idle is fine here because this code is already debounced
             self.canvas.draw_idle()
             return
 
@@ -272,7 +263,6 @@ class MatplotlibWidget(QWidget):
         ax = self.canvas.ax
         ax.clear()
 
-        # scatter plot; avoid heavy features like very large markers
         sc = ax.scatter(x, y, s=10)
 
         if xlabel:
@@ -316,38 +306,29 @@ class MatplotlibWidget(QWidget):
                 except Exception:
                     pass
 
-            # mark this annotation as active and redraw once
             self._active_annotation = sel.annotation
             self.canvas.draw_idle()
 
         def _on_remove(sel):
-            # hide the annotation for this selection
             try:
                 sel.annotation.set_visible(False)
             except Exception:
                 pass
 
-            # if it was the active annotation, clear the reference
             if getattr(self, "_active_annotation", None) is sel.annotation:
                 self._active_annotation = None
 
-            # single redraw to clear the annotation
             self.canvas.draw_idle()
 
-        # wire events
-        self._mpl_cursor.connect('add', _on_add)
-        self._mpl_cursor.connect('remove', _on_remove)
-
-        # --- Add a lightweight motion handler to hide annotation when cursor leaves all points ---
         _last_motion = {"t": 0.0}
         def _on_motion(event):
             # Only do work if an annotation is currently visible (common case: most motion is ignored)
             if getattr(self, "_active_annotation", None) is None:
                 return
 
-            # Throttle checks to reduce CPU (max ~15 fps here)
+            # Throttle checks to reduce CPU (max ~10 fps here)
             now = time.time()
-            if now - _last_motion["t"] < 0.066:  # ~66 ms
+            if now - _last_motion["t"] < 0.1: 
                 return
             _last_motion["t"] = now
 
@@ -369,7 +350,6 @@ class MatplotlibWidget(QWidget):
                 contains = False
 
             if not contains:
-                # cursor not over any point: hide active annotation and redraw
                 try:
                     if self._active_annotation is not None:
                         self._active_annotation.set_visible(False)
@@ -378,17 +358,11 @@ class MatplotlibWidget(QWidget):
                 except Exception:
                     pass
 
-        # connect the motion handler; store the connection id in case you need to disconnect later
         self._motion_cid = self.canvas.mpl_connect('motion_notify_event', _on_motion)
-
-        # wire events
         self._mpl_cursor.connect('add', _on_add)
         self._mpl_cursor.connect('remove', _on_remove)
-
         self._update_reciprocal_y_ticks()
         self._connect_tick_callbacks_once()
-
-        # layout + single draw so the new plot actually appears
         ax.figure.tight_layout()
         self.canvas.draw_idle()
 
@@ -417,7 +391,6 @@ class ScriptWorker(QObject):
             pre_out = preprocess(pdb_path=pdb_path, pre_path=pre_path, yes_no=self.yes_no)
             self.progress.emit('Preprocessing complete')
             result = exposure(pdb_path=pre_out, out_path=out_path, progress_callback=self.progress.emit)
-
             self.finished.emit(result)
         except Exception as e:
             self.error.emit(str(e))
@@ -433,7 +406,6 @@ class ScriptWorker(QObject):
             pre_out = preprocess(pdb_path=pdb_path, pre_path=pre_path, yes_no=self.yes_no)
             self.progress.emit('Preprocessing complete')
             features_out = features(pdb_path=pre_out, feature=feature)
-
             result = pre_out, features_out
             self.finished.emit(result)
         except Exception as e:
@@ -450,7 +422,6 @@ class ScriptWorker(QObject):
 
             assignment = create_3_vectors(pdb_path=pdb_path, chain1=combo, feature=feature)
             result = exposure(pdb_path=pdb_path, out_path=out_path, assignment=assignment, progress_callback=self.progress.emit)
-
             self.finished.emit(result)
         except Exception as e:
             self.error.emit(str(e))
@@ -462,9 +433,8 @@ class ScriptWorker(QObject):
             pdb_path = settings.get("pdb_path")
             defattr_path = settings.get("defattr_path")
             only_chain = settings.get("only_chain")
-            # compute data (no plotting)
+
             result = score_v_localres(pdb_path=pdb_path, defattr_path=defattr_path, only_chain=only_chain, called_by_GUI=True, inverse=True)
-            # emit the computed dict
             self.finished.emit(result)
         except Exception as e:
             self.error.emit(str(e))
@@ -500,18 +470,12 @@ class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("Solvent Exposure Calculation")
-
-        # --- create file menu if you don't already have one
         file_menu = self.menuBar().addMenu("&File")
-
-        # Create a Close action that respects platform shortcuts (⌘W on macOS)
         close_action = QAction("Close", self)
         close_action.setShortcut(QKeySequence(QKeySequence.StandardKey.Close))             # maps to ⌘W on mac
         close_action.setShortcutContext(Qt.ShortcutContext.ApplicationShortcut)  # optional: keep it global
         close_action.triggered.connect(self.close)
         file_menu.addAction(close_action)
-
-        # Also ensure the action is added to the window so the shortcut works
         self.addAction(close_action)
 
         # Set up Tabs
