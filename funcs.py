@@ -392,6 +392,7 @@ def average_score(pdb_path):
         score_df.to_csv(pdb_path[:-8] + '_avgbyresbb.defattr', sep = '\t', header=['attribute: locres \nrecipient: atoms \nmatch mode: 1-to-1', '', ''], index=False)
 
     else:
+        out = []
         fileext = pdb_path.split('.',1)[1]
         if fileext in ['pdb', 'pdb.gz', 'ent', 'ent.gz']:
             atomic_df = PandasPdb().read_pdb(pdb_path)
@@ -487,10 +488,13 @@ def average_score(pdb_path):
 
         atomic_df.df['ATOM']['b_factor'] = scores
         atomic_df.to_pdb(pdb_path.split('.',1)[0] + '_avgbyres.pdb')
+        out += [[pdb_path.split('.',1)[0] + '_avgbyres.pdb', min(scores), max(scores)]]
 
         atomic_df.df['ATOM']['b_factor'] = backbone_scores
         atomic_df.to_pdb(pdb_path.split('.',1)[0] + '_avgbyresbb.pdb')
-
+        out += [[pdb_path.split('.',1)[0] + '_avgbyresbb.pdb', min(backbone_scores), max(backbone_scores)]]
+        return out
+    
 
 def create_3_vectors(pdb_path, chain1, feature):          
     fileext = pdb_path.split('.',1)[1]

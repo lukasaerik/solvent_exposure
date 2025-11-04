@@ -28,7 +28,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from funcs import preprocess, create_3_vectors, exposure, score_v_localres, features
+from funcs import preprocess, create_3_vectors, exposure, score_v_localres, features, average_score
 
 basedir = os.path.dirname(__file__)
 standard_residues = ['LYS', 'LEU', 'THR', 'TYR', 'PRO', 'GLU', 'ASP', 'ILE', 'ALA', 'PHE', 'ARG',
@@ -116,9 +116,9 @@ class CheckableComboBox(QComboBox):
         for i in range(self.model().rowCount()):
             if self.model().item(i).checkState() == Qt.CheckState.Checked:
                 texts.append(self.model().item(i).text())
-        text = ", ".join(texts)
+        text = ', '.join(texts)
 
-        # Compute elided text (with "...")
+        # Compute elided text (with '...')
         metrics = QFontMetrics(self.lineEdit().font())
         elidedText = metrics.elidedText(text, Qt.TextElideMode.ElideRight, self.lineEdit().width())
         self.lineEdit().setText(elidedText)
@@ -152,7 +152,7 @@ class CheckableComboBox(QComboBox):
 
 
 class MplCanvas(FigureCanvas):
-    """Simple Matplotlib FigureCanvas to hold one Axes."""
+    '''Simple Matplotlib FigureCanvas to hold one Axes.'''
     def __init__(self, parent=None, width=5, height=5, dpi=100):
         fig = Figure(figsize=(width, height), dpi=dpi)
         self.ax = fig.add_subplot(111)
@@ -166,7 +166,7 @@ class MplCanvas(FigureCanvas):
 class MatplotlibWidget(QWidget):
     def __init__(self, parent=None, initial_image=None):
         super().__init__(parent)
-        self.setWindowTitle("Solvent Exposure Calculator")
+        self.setWindowTitle('Solvent Exposure Calculator')
         self.canvas = MplCanvas(self)
         self.toolbar = NavigationToolbar(self.canvas, self)
 
@@ -176,17 +176,14 @@ class MatplotlibWidget(QWidget):
         self.setLayout(layout)
 
         if initial_image is None:
-            initial_image = [[0, 5, 10, 15, 20], [0.5, 0.4, 0.3, 0.2, 0.1]]
+            initial_image = [[5.96254694e-01, 4.07681084e+00, 5.81393557e+00, 6.37337090e+00, 6.97246239e+00, 7.55877251e+00, 8.14584260e+00, 8.70770365e+00, 1.04676556e+01, 1.45273727e+01, 1.97687311e+01, 2.03432682e+01, 2.09293333e+01, 2.15253676e+01, 5.80172979e-01, 4.07076499e+00, 5.81957257e+00, 1.04847914e+01, 1.45310235e+01, 1.85978996e+01, 1.91832501e+01, 2.15167931e+01, 2.20982095e+01, 5.80238103e-01, 4.06993127e+00, 5.81351430e+00, 1.04680354e+01, 1.45359415e+01, 1.85984438e+01, 2.20905906e+01, 2.26805850e+01, 5.70678639e-01, 4.07527341e+00, 5.83303445e+00, 1.04534222e+01, 1.45208244e+01, 1.86193254e+01, 2.26765641e+01, 5.78263938e-01, 1.16154060e+00, 1.72810016e+00, 2.33523034e+00, 2.89196858e+00, 3.48416418e+00, 4.05792252e+00, 5.83117744e+00, 6.38673299e+00, 6.97187712e+00, 7.54760032e+00, 8.15496711e+00, 8.73808739e+00, 1.04528114e+01, 1.45423796e+01, 1.80054507e+01, 1.86056372e+01, 2.26732865e+01, 5.87125668e-01, 4.06209602e+00, 5.81302133e+00, 1.04602964e+01, 1.45341058e+01, 1.86197518e+01, 2.26821304e+01, 5.99551577e-01, 4.08660491e+00, 5.82505812e+00, 1.04693737e+01, 1.45260620e+01, 1.85860154e+01, 2.20967145e+01, 5.77011881e-01, 4.06241088e+00, 5.80097198e+00, 1.04678560e+01, 1.45427725e+01, 1.85894946e+01, 1.91965206e+01, 2.15076761e+01, 2.20967381e+01, 5.90398520e-01, 4.06416451e+00, 5.82387829e+00, 6.41501907e+00, 6.96543687e+00, 7.56718083e+00, 8.12951134e+00, 8.73874034e+00, 1.04706577e+01, 1.10432308e+01, 1.16205835e+01, 1.22127169e+01, 1.27928050e+01, 1.45351232e+01, 1.51177123e+01, 1.57113429e+01, 1.62770287e+01, 1.68556621e+01, 1.97684793e+01, 2.03543266e+01, 2.09309577e+01, 2.15164564e+01,-1.00742041e-02, 5.78532747e-01, 2.91623156e+00, 5.82090449e+00, 8.14526052e+00, 8.71423458e+00, 9.27625726e+00, 9.88910877e+00, 1.21864962e+01, 1.27846172e+01, 1.33755849e+01, 1.39486357e+01, 1.45525620e+01, 1.51152291e+01, 1.74302199e+01, 2.15277799e+01, 2.20924561e+01, 2.26676117e+01, 2.32499354e+01, 2.38135969e+01, 5.88882615e-01, 2.91057873e+00, 3.48957769e+00, 5.81406085e+00, 6.96808008e+00, 7.56381116e+00, 9.88789902e+00, 1.04615215e+01, 1.22027408e+01, 1.51228671e+01, 1.56963707e+01, 1.74538158e+01, 2.15409496e+01, 2.44365313e+01, 5.78699241e-01, 2.32870793e+00, 2.89692332e+00, 3.50035867e+00, 5.23518255e+00, 5.81933923e+00, 6.98421693e+00, 1.04667339e+01, 1.10497314e+01, 1.22012278e+01, 1.56929122e+01, 1.74391110e+01, 2.15128055e+01, 2.44305668e+01, 2.50040426e+01, 5.75863761e-01, 2.32852158e+00, 3.48798186e+00, 5.22298712e+00, 6.97112787e+00, 1.10429895e+01, 1.21978595e+01, 1.51236639e+01, 1.56895376e+01, 1.74429029e+01, 2.15061073e+01, 2.50005677e+01, 5.83782172e-01, 1.15965315e+00, 2.32462759e+00, 3.48930824e+00, 4.04819444e+00, 5.24007189e+00, 6.40214874e+00, 6.97544752e+00, 1.10422687e+01, 1.22062432e+01, 1.27966220e+01, 1.33575114e+01, 1.39503360e+01, 1.45325285e+01, 1.51299206e+01, 1.74386255e+01, 2.15230918e+01, 2.49919462e+01, 1.17522516e+00, 2.31499717e+00, 4.07821476e+00, 5.23732380e+00, 6.96274490e+00, 1.10465791e+01, 1.22153678e+01, 1.51112733e+01, 1.56984058e+01, 1.74478217e+01, 2.14990555e+01, 2.49976384e+01, 1.16515567e+00, 1.75464083e+00, 4.07066864e+00, 4.67080924e+00, 5.23179231e+00, 6.99319159e+00, 1.04564233e+01, 1.22279745e+01, 1.56991712e+01, 1.74447446e+01, 2.15112740e+01, 2.50028732e+01, 1.15949497e+00, 1.74674112e+00, 4.07759650e+00, 4.65360638e+00, 6.96662454e+00, 7.53631861e+00, 9.87669501e+00, 1.04745337e+01, 1.21970568e+01, 1.56975777e+01, 1.74326713e+01, 2.15305694e+01, 2.44038165e+01, 1.16709334e+00, 1.77184264e+00, 4.63527800e+00, 8.13595770e+00, 8.72082896e+00, 9.30675522e+00, 9.87241616e+00, 1.22187599e+01, 1.57089468e+01, 1.74544736e+01, 1.80216100e+01, 1.86104576e+01, 1.91876478e+01, 1.97733101e+01, 2.15199217e+01, 2.20813260e+01, 2.26771563e+01, 2.32416750e+01, 2.38379756e+01], 
+                             [0.50050222, 0.50008824, 0.50002468, 0.50020342, 0.49998496, 0.50001603, 0.50003378, 0.49973335, 0.50016288, 0.50027661, 0.49955886, 0.4999228, 0.50033779, 0.49994516, 0.48684348, 0.48611906, 0.4869761 , 0.48638985, 0.4863771 , 0.48629484, 0.48650368, 0.48606582, 0.48594095, 0.47325186, 0.47266795, 0.47277094, 0.47195167, 0.47284082, 0.47275414, 0.47276174, 0.47243042, 0.45930718, 0.45908547, 0.45889352, 0.45900042, 0.45904937, 0.45850516, 0.45866929, 0.44517504, 0.44516499, 0.44544861, 0.44624171, 0.44591431, 0.4456386 , 0.44526414, 0.44526866, 0.44533243, 0.44621404, 0.44527029, 0.44586661, 0.44521084, 0.44560427, 0.44502731, 0.44554342, 0.44602731, 0.44554905, 0.43186375, 0.43185204, 0.43209572, 0.4308597, 0.43217319, 0.43173451, 0.4313419 , 0.41800185, 0.41815116, 0.41818782, 0.41821606, 0.41761548, 0.41772398, 0.41830504, 0.40475771, 0.40442067, 0.40495383, 0.40479637, 0.40433334, 0.40429696, 0.40487882, 0.40377629, 0.40509251, 0.39078735, 0.39077427, 0.39150869, 0.39098827, 0.39081699, 0.39103901, 0.39114837, 0.39079314, 0.39104908, 0.39116737, 0.39123088, 0.39067675, 0.39129581, 0.3910187 , 0.39081521, 0.39088368, 0.39070704, 0.39087896, 0.39054643, 0.39125805, 0.39164516, 0.39124206, 0.30899095, 0.30924036, 0.30934737, 0.30936133, 0.30877282, 0.3093653 , 0.30911405, 0.30926357, 0.30906188, 0.30946723, 0.30875048, 0.3089421 , 0.30929659, 0.30970443, 0.30916906, 0.30947228, 0.3092335 , 0.30889382, 0.30867412, 0.3088584 , 0.29563449, 0.2952924 , 0.29571118, 0.29575758, 0.29530579, 0.29614876, 0.29536861, 0.29553911, 0.29527109, 0.29563072, 0.29571621, 0.2951226 , 0.29545702, 0.29530559, 0.28239096, 0.28141879, 0.28149263, 0.28203036, 0.28154934, 0.28178658, 0.28195189, 0.28161289, 0.28188398, 0.2817703 , 0.28144152, 0.28188272, 0.28187005, 0.28193321, 0.2821013, 0.26813014, 0.26867725, 0.26735952, 0.26868006, 0.26792643, 0.2685667, 0.26832514, 0.26827841, 0.26804453, 0.26878496, 0.26865959, 0.26795661, 0.25480848, 0.25401354, 0.25443246, 0.25479527, 0.25428121, 0.25463727, 0.25422197, 0.25471256, 0.25425323, 0.25375204, 0.25408643, 0.25420654, 0.25467597, 0.25481153, 0.25474452, 0.25460552, 0.25448885, 0.2543339, 0.24098642, 0.24042494, 0.24087567, 0.24098655, 0.24080232, 0.2412132, 0.24044209, 0.24083115, 0.24115701, 0.24072121, 0.24093191, 0.24040232, 0.22742359, 0.22741627, 0.22676936, 0.22787531, 0.22733598, 0.22718892, 0.22678687, 0.22671446, 0.22695256, 0.22765442, 0.2274607 , 0.22700747, 0.21371944, 0.21364745, 0.21384062, 0.21336159, 0.2133576 , 0.21357356, 0.21298157, 0.2135119 , 0.21387164, 0.21340503, 0.21355778, 0.21415836, 0.21329659, 0.19968525, 0.20019266, 0.19976646, 0.19995692, 0.20023523, 0.20024174, 0.20035051, 0.19980486, 0.2000605 , 0.19993717, 0.20048241, 0.20049686, 0.2002386 , 0.19954422, 0.20012563, 0.1997846 , 0.20048284, 0.19984043, 0.19973371]]
 
-        self.canvas.ax.plot(*initial_image)
+        self.canvas.ax.scatter(*initial_image)
         self._last_recip_update = 0.0
         self._mpl_cursor = None
         self._connect_tick_callbacks_once()
         self.canvas.figure.tight_layout()
-        self.canvas.draw_idle()
-
-    def update_image(self, array):
-        self.canvas.ax.plot(*array)
         self.canvas.draw_idle()
 
     def reciprocal_ticks(self, mn, mx, n=4, intervals=[1, 2, 5, 10, 20, 50, 100]):
@@ -211,10 +208,10 @@ class MatplotlibWidget(QWidget):
         return np.array(sorted(ticks))
 
     def _update_reciprocal_y_ticks(self, ax=None):
-        """Compute labels and set reciprocal-style y-ticks. Debounced to avoid frequent runs."""
+        '''Compute labels and set reciprocal-style y-ticks. Debounced to avoid frequent runs.'''
         # debounce: allow at most ~6-7 updates per second
         now = time.time()
-        if now - getattr(self, "_last_recip_update", 0.0) < 0.15:
+        if now - getattr(self, '_last_recip_update', 0.0) < 0.15:
             return
         self._last_recip_update = now
 
@@ -222,25 +219,25 @@ class MatplotlibWidget(QWidget):
             ax = self.canvas.ax
         ymin, ymax = ax.get_ylim()
         if ymax <= 0:
-            ax.yaxis.set_major_formatter(ticker.FuncFormatter(lambda y, pos: f"{y:g}"))
+            ax.yaxis.set_major_formatter(ticker.FuncFormatter(lambda y, pos: f'{y:g}'))
             self.canvas.draw_idle()
             return
 
         ticks = self.reciprocal_ticks(ymin, ymax)
         if ticks.size == 0:
-            ax.yaxis.set_major_formatter(ticker.FuncFormatter(lambda y, pos: f"1/{1/y:.3g}" if y != 0 else "0"))
+            ax.yaxis.set_major_formatter(ticker.FuncFormatter(lambda y, pos: f'1/{1/y:.3g}' if y != 0 else '0'))
         else:
             ax.set_yticks(1/ticks)
             labels = []
             for val in ticks:
                 if val == 0:
-                    labels.append("0")
+                    labels.append('0')
                 else:
                     denom = val
                     if abs(denom - round(denom)) < 1e-8:
-                        labels.append(f"1/{int(round(denom))}")
+                        labels.append(f'1/{int(round(denom))}')
                     else:
-                        labels.append(f"1/{denom:g}")
+                        labels.append(f'1/{denom:g}')
             ax.set_yticklabels(labels)
 
         # draw once after updates (debounced)
@@ -248,7 +245,7 @@ class MatplotlibWidget(QWidget):
 
     def _connect_tick_callbacks_once(self):
         ax = self.canvas.ax
-        if getattr(self, "_recip_callbacks_connected", False):
+        if getattr(self, '_recip_callbacks_connected', False):
             return
         # connect to ylim_changed using a lambda that calls debounced updater
         ax.callbacks.connect('ylim_changed', lambda a: self._update_reciprocal_y_ticks(a))
@@ -285,7 +282,7 @@ class MatplotlibWidget(QWidget):
             if names is not None:
                 try:
                     ch, resatom = names[i].split(':',1)
-                    label = f"Chain {ch[1:]}\nResidue {resatom.split('@',1)[0]}\nAtom {resatom.split('@',1)[1]}"
+                    label = f'Chain {ch[1:]}\nResidue {resatom.split('@',1)[0]}\nAtom {resatom.split('@',1)[1]}'
                 except Exception:
                     label = str(i)
             else:
@@ -297,7 +294,7 @@ class MatplotlibWidget(QWidget):
             sel.annotation.set_visible(True)
 
             # hide any previously shown annotation (so old labels don't linger)
-            if getattr(self, "_active_annotation", None) is not None and self._active_annotation is not sel.annotation:
+            if getattr(self, '_active_annotation', None) is not None and self._active_annotation is not sel.annotation:
                 try:
                     self._active_annotation.set_visible(False)
                 except Exception:
@@ -312,22 +309,22 @@ class MatplotlibWidget(QWidget):
             except Exception:
                 pass
 
-            if getattr(self, "_active_annotation", None) is sel.annotation:
+            if getattr(self, '_active_annotation', None) is sel.annotation:
                 self._active_annotation = None
 
             self.canvas.draw_idle()
 
-        _last_motion = {"t": 0.0}
+        _last_motion = {'t': 0.0}
         def _on_motion(event):
             # Only do work if an annotation is currently visible (common case: most motion is ignored)
-            if getattr(self, "_active_annotation", None) is None:
+            if getattr(self, '_active_annotation', None) is None:
                 return
 
             # Throttle checks to reduce CPU (max ~10 fps here)
             now = time.time()
-            if now - _last_motion["t"] < 0.1: 
+            if now - _last_motion['t'] < 0.1: 
                 return
-            _last_motion["t"] = now
+            _last_motion['t'] = now
 
             if event.inaxes != self.canvas.ax:
                 # Moved outside axes — hide active annotation
@@ -361,6 +358,7 @@ class MatplotlibWidget(QWidget):
         self._update_reciprocal_y_ticks()
         self._connect_tick_callbacks_once()
         ax.figure.tight_layout()
+        self._active_annotation = None
         self.canvas.draw_idle()
 
 
@@ -381,13 +379,21 @@ class ScriptWorker(QObject):
         try:
             settings = self.settings
             
-            pdb_path = settings.get("pdb_path")
-            pre_path = settings.get("folder_pre_path")
-            out_path = settings.get("folder_out_path")
+            pdb_path = settings.get('pdb_path')
+            pre_path = settings.get('folder_pre_path')
+            out_path = settings.get('folder_out_path')
+            average = settings.get('average')
 
             pre_out = preprocess(pdb_path=pdb_path, pre_path=pre_path, yes_no=self.yes_no)
             self.progress.emit('Preprocessing complete')
             result = exposure(pdb_path=pre_out, out_path=out_path, progress_callback=self.progress.emit)
+            if average:
+                tempresult = []
+                for i in result:
+                    self.progress.emit(f'File {i[0]} saved. \n Min: {i[1]:2g} \n Max: {i[2]:2g}')
+                    tempresult += average_score(i[0])
+                result = tempresult
+
             self.finished.emit(result)
         except Exception as e:
             self.error.emit(str(e))
@@ -396,9 +402,9 @@ class ScriptWorker(QObject):
         self.started.emit()
         try:
             settings = self.settings
-            pdb_path = settings.get("pdb_path")
-            pre_path = settings.get("folder_pre_path")
-            feature = settings.get("feature")
+            pdb_path = settings.get('pdb_path')
+            pre_path = settings.get('folder_pre_path')
+            feature = settings.get('feature')
 
             pre_out = preprocess(pdb_path=pdb_path, pre_path=pre_path, yes_no=self.yes_no)
             self.progress.emit('Preprocessing complete')
@@ -412,13 +418,22 @@ class ScriptWorker(QObject):
         self.started.emit()
         try:
             settings = self.settings
-            pdb_path = settings.get("pre_out_path")
-            out_path = settings.get("folder_out_path")
-            feature = settings.get("feature")
-            combo = settings.get("combo")
+            pdb_path = settings.get('pre_out_path')
+            out_path = settings.get('folder_out_path')
+            feature = settings.get('feature')
+            combo = settings.get('combo')
+            average = settings.get('average')
 
             assignment = create_3_vectors(pdb_path=pdb_path, chain1=combo, feature=feature)
             result = exposure(pdb_path=pdb_path, out_path=out_path, assignment=assignment, progress_callback=self.progress.emit)
+            print("RESULT\n",result)
+            if average:
+                tempresult = []
+                for i in result:
+                    self.progress.emit(f'File {i[0]} saved. \n Min: {i[1]:2g} \n Max: {i[2]:2g}')
+                    tempresult += average_score(i[0])
+                result = tempresult
+
             self.finished.emit(result)
         except Exception as e:
             self.error.emit(str(e))
@@ -427,9 +442,9 @@ class ScriptWorker(QObject):
         self.started.emit()
         try:
             settings = self.settings
-            pdb_path = settings.get("pdb_path")
-            defattr_path = settings.get("defattr_path")
-            only_chain = settings.get("only_chain")
+            pdb_path = settings.get('pdb_path')
+            defattr_path = settings.get('defattr_path')
+            only_chain = settings.get('only_chain')
 
             result = score_v_localres(pdb_path=pdb_path, defattr_path=defattr_path, only_chain=only_chain, called_by_GUI=True, inverse=True)
             self.finished.emit(result)
@@ -437,10 +452,10 @@ class ScriptWorker(QObject):
             self.error.emit(str(e))
         
     def yes_no(self, text):
-        """
+        '''
         Called from worker thread. Will emit `ask` (handled in main thread)
         and wait for `answer` to be emitted by main thread.
-        """
+        '''
         loop = QEventLoop()
         response_holder = {'val': None}
 
@@ -466,9 +481,9 @@ class ScriptWorker(QObject):
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("Solvent Exposure Calculation")
-        file_menu = self.menuBar().addMenu("&File")
-        close_action = QAction("Close", self)
+        self.setWindowTitle('Solvent Exposure Calculation')
+        file_menu = self.menuBar().addMenu('&File')
+        close_action = QAction('Close', self)
         close_action.setShortcut(QKeySequence(QKeySequence.StandardKey.Close))             # maps to ⌘W on mac
         close_action.setShortcutContext(Qt.ShortcutContext.ApplicationShortcut)  # optional: keep it global
         close_action.triggered.connect(self.close)
@@ -490,49 +505,55 @@ class MainWindow(QMainWindow):
             'pdb_path': os.path.join(basedir, 'pdbs', 'in', '1u7g.pdb'),
             'folder_pre_path': os.path.join(basedir, 'pdbs', 'preprocessed'),
             'folder_out_path': os.path.join(basedir, 'pdbs', 'out'),
+            'average': True,
         }
 
-        self.interactive = True
-        self.only_chain = False
+        self.simple_average = True
 
         # PDB file selection
         file_row = QHBoxLayout()
         self.file_edit = QLineEdit()
-        self.file_edit.setText(self.current_simple_settings.get("pdb_path", ""))
-        self.file_browse = QPushButton("Browse...")
+        self.file_edit.setText(self.current_simple_settings.get('pdb_path', ''))
+        self.file_browse = QPushButton('Browse...')
         self.file_browse.clicked.connect(self._browse_file)
         file_row.addWidget(self.file_edit)
         file_row.addWidget(self.file_browse)
-        simple_form.addRow("PDB File:", file_row)
+        simple_form.addRow('PDB File:', file_row)
 
         # Folder (preproccessed) selection
         folder_pre_row = QHBoxLayout()
         self.folder_pre_edit = QLineEdit()
-        self.folder_pre_edit.setText(self.current_simple_settings.get("folder_pre_path", ""))
-        self.folder_pre_browse = QPushButton("Browse...")
+        self.folder_pre_edit.setText(self.current_simple_settings.get('folder_pre_path', ''))
+        self.folder_pre_browse = QPushButton('Browse...')
         self.folder_pre_browse.clicked.connect(self._browse_pre_folder)
         folder_pre_row.addWidget(self.folder_pre_edit)
         folder_pre_row.addWidget(self.folder_pre_browse)
-        simple_form.addRow("Preprocessed Folder:", folder_pre_row)
+        simple_form.addRow('Preprocessed Folder:', folder_pre_row)
 
         # Folder (out) selection
         folder_out_row = QHBoxLayout()
         self.folder_out_edit = QLineEdit()
-        self.folder_out_edit.setText(self.current_simple_settings.get("folder_out_path", ""))
-        self.folder_out_browse = QPushButton("Browse...")
+        self.folder_out_edit.setText(self.current_simple_settings.get('folder_out_path', ''))
+        self.folder_out_browse = QPushButton('Browse...')
         self.folder_out_browse.clicked.connect(self._browse_out_folder)
         folder_out_row.addWidget(self.folder_out_edit)
         folder_out_row.addWidget(self.folder_out_browse)
-        simple_form.addRow("Output Folder:", folder_out_row)
-        
+        simple_form.addRow('Output Folder:', folder_out_row)
+
+        # Average checkbox
+        self.simple_average_checkbox = QCheckBox('Average output per residue?')
+        self.simple_average_checkbox.setChecked(self.simple_average)
+        self.simple_average_checkbox.stateChanged.connect(self._on_simple_average_toggled)
+        simple_form.addRow('', self.simple_average_checkbox)
+
         # Output text box
         self.simple_output = QTextEdit()
         self.simple_output.setReadOnly(True)
-        self.simple_output.setPlaceholderText("Results will appear here...")
+        self.simple_output.setPlaceholderText('Results will appear here...')
         simple_form.addRow('', self.simple_output)
 
         # Bottom: Run Button
-        self.run_simple = QPushButton("Calculate")
+        self.run_simple = QPushButton('Calculate')
         self.run_simple.clicked.connect(self.on_run_simple_clicked)
         simple_form.addRow('', self.run_simple)
 
@@ -544,6 +565,7 @@ class MainWindow(QMainWindow):
         ###
         # Adduct Tab
         ###
+        self.adduct_average = True
         adduct = QWidget()
         adduct_form = QFormLayout()
 
@@ -554,27 +576,28 @@ class MainWindow(QMainWindow):
             'pre_out_path': '',
             'folder_out_path': os.path.join(basedir, 'pdbs', 'out'),
             'combo': '',
+            'average': True,
         }
 
         # PDB File selection
         adduct_file_row = QHBoxLayout()
         self.adduct_file_edit = QLineEdit()
-        self.adduct_file_edit.setText(self.current_adduct_settings.get("pdb_path", ""))
-        self.adduct_file_browse = QPushButton("Browse...")
+        self.adduct_file_edit.setText(self.current_adduct_settings.get('pdb_path', ''))
+        self.adduct_file_browse = QPushButton('Browse...')
         self.adduct_file_browse.clicked.connect(self._browse_adduct_file)
         adduct_file_row.addWidget(self.adduct_file_edit)
         adduct_file_row.addWidget(self.adduct_file_browse)
-        adduct_form.addRow("PDB File:", adduct_file_row)
+        adduct_form.addRow('PDB File:', adduct_file_row)
 
         # Folder (preprocessed) selection
         adduct_folder_pre_row = QHBoxLayout()
         self.adduct_folder_pre_edit = QLineEdit()
-        self.adduct_folder_pre_edit.setText(self.current_adduct_settings.get("folder_pre_path", ""))
-        self.adduct_folder_pre_browse = QPushButton("Browse...")
+        self.adduct_folder_pre_edit.setText(self.current_adduct_settings.get('folder_pre_path', ''))
+        self.adduct_folder_pre_browse = QPushButton('Browse...')
         self.adduct_folder_pre_browse.clicked.connect(self._browse_adduct_pre_folder)
         adduct_folder_pre_row.addWidget(self.adduct_folder_pre_edit)
         adduct_folder_pre_row.addWidget(self.adduct_folder_pre_browse)
-        adduct_form.addRow("Preprocessed Folder:", adduct_folder_pre_row)
+        adduct_form.addRow('Preprocessed Folder:', adduct_folder_pre_row)
 
         # Feature selection
         self.adduct_feature = QComboBox()
@@ -583,10 +606,10 @@ class MainWindow(QMainWindow):
         idx = self.adduct_feature.findText(op)
         if idx >= 0:
             self.adduct_feature.setCurrentIndex(idx)
-        adduct_form.addRow("Feature", self.adduct_feature)
+        adduct_form.addRow('Feature', self.adduct_feature)
 
         # Preprocess/feature Run Button
-        self.run_adduct_pre = QPushButton("Calculate")
+        self.run_adduct_pre = QPushButton('Preprocess')
         self.run_adduct_pre.clicked.connect(self.on_run_adduct_pre_clicked)
         adduct_form.addRow('', self.run_adduct_pre)
 
@@ -597,22 +620,28 @@ class MainWindow(QMainWindow):
         # Folder (out) selection
         adduct_folder_out_row = QHBoxLayout()
         self.adduct_folder_out_edit = QLineEdit()
-        self.adduct_folder_out_edit.setText(self.current_adduct_settings.get("folder_out_path", ""))
-        self.adduct_folder_out_browse = QPushButton("Browse...")
+        self.adduct_folder_out_edit.setText(self.current_adduct_settings.get('folder_out_path', ''))
+        self.adduct_folder_out_browse = QPushButton('Browse...')
         self.adduct_folder_out_browse.clicked.connect(self._browse_adduct_out_folder)
         adduct_folder_out_row.addWidget(self.adduct_folder_out_edit)
         adduct_folder_out_row.addWidget(self.adduct_folder_out_browse)
-        adduct_form.addRow("Output Folder:", adduct_folder_out_row)
+        adduct_form.addRow('Output Folder:', adduct_folder_out_row)
+
+        # Average checkbox
+        self.adduct_average_checkbox = QCheckBox('Average output per residue?')
+        self.adduct_average_checkbox.setChecked(self.adduct_average)
+        self.adduct_average_checkbox.stateChanged.connect(self._on_adduct_average_toggled)
+        adduct_form.addRow('', self.adduct_average_checkbox)
 
         # Bottom: Run Button
-        self.run_adduct_out = QPushButton("Calculate")
+        self.run_adduct_out = QPushButton('Calculate')
         self.run_adduct_out.clicked.connect(self.on_run_adduct_out_clicked)
         adduct_form.addRow('', self.run_adduct_out)
 
         # Output text box
         self.adduct_output = QTextEdit()
         self.adduct_output.setReadOnly(True)
-        self.adduct_output.setPlaceholderText("Results will appear here...")
+        self.adduct_output.setPlaceholderText('Results will appear here...')
         adduct_form.addRow('', self.adduct_output)
 
         adduct.setLayout(adduct_form)
@@ -628,37 +657,37 @@ class MainWindow(QMainWindow):
         ###
         # Plotting Tab
         ###
+        self.only_chain = False
         plot = QWidget()
         plot_form = QFormLayout()
 
         self.current_plot_settings = {
             'pdb_path': os.path.join(basedir, 'pdbs', 'out', '3jcz_2c50_26p5.pdb'),
             'defattr_path': os.path.join(basedir, 'pdbs', 'out', 'defattrs', 'gdh_J123.defattr'),
-            'interactive': True,
             'only_chain': False,
         }
 
         plot_pdb_row = QHBoxLayout()
         self.plot_pdb_edit = QLineEdit()
-        self.plot_pdb_edit.setText(self.current_plot_settings.get("pdb_path", ""))
-        self.plot_pdb_browse = QPushButton("Browse...")
+        self.plot_pdb_edit.setText(self.current_plot_settings.get('pdb_path', ''))
+        self.plot_pdb_browse = QPushButton('Browse...')
         self.plot_pdb_browse.clicked.connect(self._browse_plot_file)
         plot_pdb_row.addWidget(self.plot_pdb_edit)
         plot_pdb_row.addWidget(self.plot_pdb_browse)
-        plot_form.addRow("PDB File:", plot_pdb_row)
+        plot_form.addRow('PDB File:', plot_pdb_row)
 
         plot_defattr_row = QHBoxLayout()
         self.plot_defattr_edit = QLineEdit()
-        self.plot_defattr_edit.setText(self.current_plot_settings.get("defattr_path", ""))
-        self.plot_defattr_browse = QPushButton("Browse...")
+        self.plot_defattr_edit.setText(self.current_plot_settings.get('defattr_path', ''))
+        self.plot_defattr_browse = QPushButton('Browse...')
         self.plot_defattr_browse.clicked.connect(self._browse_defattr_file)
         plot_defattr_row.addWidget(self.plot_defattr_edit)
         plot_defattr_row.addWidget(self.plot_defattr_browse)
-        plot_form.addRow("defattr File:", plot_defattr_row)
+        plot_form.addRow('defattr File:', plot_defattr_row)
 
         # Only chain(s)?
         only_chains_h = QHBoxLayout()
-        self.only_chain_checkbox = QCheckBox("Only Chain(s)?")
+        self.only_chain_checkbox = QCheckBox('Only Chain(s)?')
         self.only_chain_checkbox.setChecked(self.only_chain)
         self.only_chain_checkbox.stateChanged.connect(self._on_only_chains_toggled)
         only_chains_h.addWidget(self.only_chain_checkbox)
@@ -667,18 +696,10 @@ class MainWindow(QMainWindow):
         only_chains_h.addWidget(self.only_chain_combo)
         plot_form.addRow('', only_chains_h)
 
-        # Interactive mode
-        bottom_h = QHBoxLayout()
-        self.interactive_checkbox = QCheckBox("Interactive?")
-        self.interactive_checkbox.setChecked(self.interactive)
-        self.interactive_checkbox.stateChanged.connect(self._on_interactive_toggled)
-        bottom_h.addWidget(self.interactive_checkbox, alignment=Qt.AlignmentFlag.AlignLeft)
-
         # Plot button
-        self.run_plot = QPushButton("Plot")
+        self.run_plot = QPushButton('Plot')
         self.run_plot.clicked.connect(self.on_run_plot_clicked)
-        bottom_h.addWidget(self.run_plot)
-        plot_form.addRow('', bottom_h)
+        plot_form.addRow('', self.run_plot)
 
         self.sc = MatplotlibWidget(self)
         plot_form.addWidget(self.sc)
@@ -686,7 +707,7 @@ class MainWindow(QMainWindow):
         # Output text box
         self.plot_output = QTextEdit()
         self.plot_output.setReadOnly(True)
-        self.plot_output.setPlaceholderText("Results will appear here...")
+        self.plot_output.setPlaceholderText('Results will appear here...')
         plot_form.addRow('', self.plot_output)
 
         plot.setLayout(plot_form)
@@ -738,12 +759,12 @@ class MainWindow(QMainWindow):
         self.run_adduct_pre.setEnabled(True)
         self.run_plot.setEnabled(True)
         for i in result:
-            self.simple_output.append(f"File {i[0]} saved. \n Min: {i[1]:2g} \n Max: {i[2]:2g}")
+            self.simple_output.append(f'File {i[0]} saved. \n Min: {i[1]:2g} \n Max: {i[2]:2g}')
 
     def on_worker_simple_error(self, err_str):
         self.run_simple.setEnabled(True)
-        self.simple_output.append(f"Worker error: {err_str}")
-        QMessageBox.critical(self, "Script error", f"An error occurred:\n{err_str}")
+        self.simple_output.append(f'Worker error: {err_str}')
+        QMessageBox.critical(self, 'Script error', f'An error occurred:\n{err_str}')
 
     def on_run_adduct_pre_clicked(self):
         # gather values
@@ -791,14 +812,14 @@ class MainWindow(QMainWindow):
         self.adduct_folder_out_browse.setEnabled(True)
         self.run_plot.setEnabled(True)     
         pre_out, options = result
-        self.current_adduct_settings["pre_out_path"] = pre_out
-        self.adduct_output.append(f"File {pre_out} saved. \n There were {len(options)} unique entries under {self.current_adduct_settings.get("feature")}.")
+        self.current_adduct_settings['pre_out_path'] = pre_out
+        self.adduct_output.append(f'File {pre_out} saved. \n There were {len(options)} unique entries under {self.current_adduct_settings.get('feature')}.')
         self.combo.clear()
         self.combo.addItems(options)
 
     def on_worker_adduct_pre_error(self, err_str):
         self.run_adduct_pre.setEnabled(True)
-        QMessageBox.critical(self, "Script error", f"An error occurred:\n{err_str}")
+        QMessageBox.critical(self, 'Script error', f'An error occurred:\n{err_str}')
 
     def on_run_adduct_out_clicked(self):
         # gather values
@@ -846,21 +867,26 @@ class MainWindow(QMainWindow):
         self.adduct_folder_out_browse.setEnabled(True)    
         self.run_plot.setEnabled(True)
         for i in result:
-            self.adduct_output.append(f"File {i[0]} saved. \n Min: {i[1]:2g} \n Max: {i[2]:2g}")
+            self.adduct_output.append(f'File {i[0]} saved. \n Min: {i[1]:2g} \n Max: {i[2]:2g}')
 
     def on_worker_adduct_out_error(self, err_str):
         self.run_adduct_out.setEnabled(True)
-        QMessageBox.critical(self, "Script error", f"An error occurred:\n{err_str}")
+        QMessageBox.critical(self, 'Script error', f'An error occurred:\n{err_str}')
 
-    def _on_interactive_toggled(self, state):
-        self.interactive = bool(state)
+    def _on_simple_average_toggled(self, state):
+        self.simple_average = bool(state)
         # reflect in current_plot_settings immediately
-        self.current_plot_settings["interactive"] = self.interactive
+        self.current_simple_settings['average'] = self.simple_average
+
+    def _on_adduct_average_toggled(self, state):
+        self.adduct_average = bool(state)
+        # reflect in current_plot_settings immediately
+        self.current_adduct_settings['average'] = self.adduct_average
 
     def _on_only_chains_toggled(self, state):
         self.only_chain = bool(state)
         # reflect in current_plot_settings immediately
-        self.current_plot_settings["only_chain"] = self.only_chain
+        self.current_plot_settings['only_chain'] = self.only_chain
 
     def on_run_plot_clicked(self):
         # gather values
@@ -905,61 +931,61 @@ class MainWindow(QMainWindow):
             try:
                 self.sc.plot_score_vs_resolution(x, y, names=names, xlabel=xlabel, ylabel=ylabel)
             except Exception as e:
-                QMessageBox.critical(self, "Plot error", f"Could not draw plot:\n{e}")
+                QMessageBox.critical(self, 'Plot error', f'Could not draw plot:\n{e}')
         else:
             # fallback text output if something unexpected
             self.plot_output.append('Plot worker finished (unexpected result format).')
 
     def on_worker_plot_error(self, err_str):
         self.run_plot.setEnabled(True)
-        self.plot_output.append(f"Worker error: {err_str}")
-        QMessageBox.critical(self, "Script error", f"An error occurred:\n{err_str}")
+        self.plot_output.append(f'Worker error: {err_str}')
+        QMessageBox.critical(self, 'Script error', f'An error occurred:\n{err_str}')
 
 
     def _browse_file(self):
-        fname, _ = QFileDialog.getOpenFileName(self, "Select file", self.file_edit.text() or "", "All Files (*)")
+        fname, _ = QFileDialog.getOpenFileName(self, 'Select file', self.file_edit.text() or '', 'All Files (*)')
         if fname:
             self.file_edit.setText(fname)
 
     def _browse_adduct_file(self):
-        fname, _ = QFileDialog.getOpenFileName(self, "Select file", self.adduct_file_edit.text() or "", "All Files (*)")
+        fname, _ = QFileDialog.getOpenFileName(self, 'Select file', self.adduct_file_edit.text() or '', 'All Files (*)')
         if fname:
             self.adduct_file_edit.setText(fname)
 
     def _browse_plot_file(self):
-        fname, _ = QFileDialog.getOpenFileName(self, "Select file", self.plot_pdb_edit.text() or "", "All Files (*)")
+        fname, _ = QFileDialog.getOpenFileName(self, 'Select file', self.plot_pdb_edit.text() or '', 'All Files (*)')
         if fname:
             self.plot_pdb_edit.setText(fname)
 
     def _browse_defattr_file(self):
-        fname, _ = QFileDialog.getOpenFileName(self, "Select file", self.plot_defattr_edit.text() or "", "All Files (*)")
+        fname, _ = QFileDialog.getOpenFileName(self, 'Select file', self.plot_defattr_edit.text() or '', 'All Files (*)')
         if fname:
             self.plot_defattr_edit.setText(fname)
 
     def _browse_pre_folder(self):
-        folder = QFileDialog.getExistingDirectory(self, "Select folder", self.folder_pre_edit.text() or "")
+        folder = QFileDialog.getExistingDirectory(self, 'Select folder', self.folder_pre_edit.text() or '')
         if folder:
             self.folder_pre_edit.setText(folder)
             
     def _browse_out_folder(self):
-        folder = QFileDialog.getExistingDirectory(self, "Select folder", self.folder_out_edit.text() or "")
+        folder = QFileDialog.getExistingDirectory(self, 'Select folder', self.folder_out_edit.text() or '')
         if folder:
             self.folder_out_edit.setText(folder)    
     
     def _browse_adduct_pre_folder(self):
-        folder = QFileDialog.getExistingDirectory(self, "Select folder", self.adduct_folder_pre_edit.text() or "")
+        folder = QFileDialog.getExistingDirectory(self, 'Select folder', self.adduct_folder_pre_edit.text() or '')
         if folder:
             self.adduct_folder_pre_edit.setText(folder)
             
     def _browse_adduct_out_folder(self):
-        folder = QFileDialog.getExistingDirectory(self, "Select folder", self.adduct_folder_out_edit.text() or "")
+        folder = QFileDialog.getExistingDirectory(self, 'Select folder', self.adduct_folder_out_edit.text() or '')
         if folder:
             self.adduct_folder_out_edit.setText(folder)
 
     def _on_worker_ask_question(self, text):
         # This runs on the main thread (slot invoked in main thread)
         dlg = QMessageBox(self)
-        dlg.setWindowTitle("User Input Required")
+        dlg.setWindowTitle('User Input Required')
         dlg.setText(text)
         dlg.setStandardButtons(QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
         dlg.setDefaultButton(QMessageBox.StandardButton.Yes)
@@ -973,31 +999,33 @@ class MainWindow(QMainWindow):
     def get_simple_settings(self):
         # Return a dict of settings
         return {
-            "pdb_path": self.file_edit.text(),
-            "folder_pre_path": self.folder_pre_edit.text(),
-            "folder_out_path": self.folder_out_edit.text(),
+            'pdb_path': self.file_edit.text(),
+            'folder_pre_path': self.folder_pre_edit.text(),
+            'folder_out_path': self.folder_out_edit.text(),
+            'average': self.simple_average,
         }
     
     def get_adduct_settings(self):
         return {
-            "pdb_path": self.adduct_file_edit.text(),
-            "folder_pre_path": self.adduct_folder_pre_edit.text(),
-            "folder_out_path": self.adduct_folder_out_edit.text(),
-            "feature": self.adduct_feature.currentText(),
-            "combo": self.combo.currentData(),
+            'pdb_path': self.adduct_file_edit.text(),
+            'folder_pre_path': self.adduct_folder_pre_edit.text(),
+            'folder_out_path': self.adduct_folder_out_edit.text(),
+            'feature': self.adduct_feature.currentText(),
+            'combo': self.combo.currentData(),
+            'average': self.adduct_average,
         }
     
     def get_plot_settings(self):
         if self.only_chain:
             return {
-            "pdb_path": self.plot_pdb_edit.text(),
-            "defattr_path": self.plot_defattr_edit.text(),
+            'pdb_path': self.plot_pdb_edit.text(),
+            'defattr_path': self.plot_defattr_edit.text(),
             'only_chain': self.only_chain_combo.currentData(),
         }
         else:
             return {
-            "pdb_path": self.plot_pdb_edit.text(),
-            "defattr_path": self.plot_defattr_edit.text(),
+            'pdb_path': self.plot_pdb_edit.text(),
+            'defattr_path': self.plot_defattr_edit.text(),
         }
 
 app = QApplication(sys.argv)
