@@ -1,5 +1,4 @@
 import sys, os, time, mplcursors
-import pandas as pd
 import numpy as np
 
 from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
