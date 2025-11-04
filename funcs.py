@@ -25,13 +25,7 @@ def preprocess(pdb_path,
                include: list = ['C', 'N', 'O', 'S'], 
                redefine_chains: bool = False):
     
-    try:
-        filename = pdb_path.rsplit('/',1)[1]
-    except IndexError:
-        try:
-            filename = pdb_path.rsplit("\\",1)[1]
-        except IndexError:
-            filename = pdb_path
+    filename = os.path.basename(pdb_path)
 
     if filename.split(".",1)[1] in ['pdb', 'pdb.gz', 'ent', 'ent.gz']:
         atomic_df = PandasPdb().read_pdb(pdb_path)
@@ -177,13 +171,7 @@ def exposure_old(pdb_path,
              save_scores_as_vector: bool = False,
              progress_callback = None):
 
-    try:
-        filename = pdb_path.rsplit('/',1)[1]
-    except IndexError:
-        try:
-            filename = pdb_path.rsplit("\\",1)[1]
-        except IndexError:
-            filename = pdb_path
+    filename = os.path.basename(pdb_path)
             
     filename, fileext = filename.split('.',1)
 
@@ -281,13 +269,7 @@ def exposure(pdb_path,
                     save_scores_as_vector: bool = False,
                     progress_callback = None):
 
-    try:
-        filename = pdb_path.rsplit('/',1)[1]
-    except IndexError:
-        try:
-            filename = pdb_path.rsplit("\\",1)[1]
-        except IndexError:
-            filename = pdb_path
+    filename = os.path.basename(pdb_path)
             
     filename, fileext = filename.split('.',1)
 
@@ -461,10 +443,10 @@ def average_score(pdb_path):
                     backbone_score=0
 
         atomic_df.df['ATOM']['b_factor'] = scores
-        atomic_df.to_pdb(pdb_path[:-4] + '_avgbyres.pdb')
+        atomic_df.to_pdb(pdb_path.split('.',1)[0] + '_avgbyres.pdb')
 
         atomic_df.df['ATOM']['b_factor'] = backbone_scores
-        atomic_df.to_pdb(pdb_path[:-4] + '_avgbyresbb.pdb')
+        atomic_df.to_pdb(pdb_path.split('.',1)[0] + '_avgbyresbb.pdb')
 
 
 def create_3_vectors(pdb_path, chain1, feature):          
