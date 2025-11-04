@@ -62,6 +62,11 @@ I use ChimeraX to visualise proteins, and will show example commands below. This
 color byattribute bfactor #1 palette 20,#000000:15,#000088:10,#ff0000:5,#ffff00:0,#ffffff
 ```
 
+A key can be generated with
+```
+key #ffffff:0 #ffff00:5 #ff0000:10 #000088:15 #000000:20 ticks true
+```
+
 #### To get local resolution by atom in ChimeraX:
 Ensure the map and model are correctly aligned!
 
