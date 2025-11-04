@@ -2,7 +2,9 @@ import numpy as np
 import pandas as pd
 from biopandas.pdb import PandasPdb
 import matplotlib.pyplot as plt
-import os, math, time
+import os, math, time, psutil
+from scipy.spatial.distance import pdist, squareform
+from scipy.spatial import cKDTree
 
 basedir = os.path.dirname(__file__)
 standard_residues = ['LYS', 'LEU', 'THR', 'TYR', 'PRO', 'GLU', 'ASP', 'ILE', 'ALA', 'PHE', 'ARG',
@@ -120,14 +122,34 @@ def preprocess(pdb_path,
     return out_path
 
 
-def f2_cutoff(x, cutoff: float = 50):
-    if x > cutoff:
-        return 0
-    else:
-        return x ** -2
-    
+def f2_cutoff(x, cutoff: float = 50.0, eps: float = 1e100):
+    """
+    Vector-safe: accepts scalars or numpy arrays.
+    - distances > cutoff -> 0
+    - distances == 0 -> treated as eps to avoid division-by-zero -> finite large value
+    - replaces any nan/inf with finite numbers (0.0)
+    """
+    xa = np.asarray(x, dtype=float)
 
-def exposure(pdb_path,
+    # avoid warnings but still produce controlled values
+    with np.errstate(divide='ignore', invalid='ignore'):
+        # replace zeros with eps before inverting/squaring to avoid inf
+        safe = np.where(xa == 0.0, eps, xa)
+        vals = 1.0 / (safe ** 2)
+
+    # zero out above cutoff
+    vals = np.where(xa > cutoff, 0.0, vals)
+
+    # replace any non-finite values (shouldn't be any now) with 0.0
+    vals = np.nan_to_num(vals, nan=0.0, posinf=0.0, neginf=0.0)
+
+    # If input was scalar, return scalar float for compatibility
+    if np.isscalar(x):
+        return float(vals)
+    return vals
+  
+
+def exposure_old(pdb_path,
              out_path,
              funcs: dict = {'2c50': f2_cutoff}, 
              assignment=None, 
@@ -220,6 +242,88 @@ def exposure(pdb_path,
                     np.save(os.path.join(out_path, filename + '_' + key + '_mat.npy'), mat)
                     mat_not_saved = False
 
+    return out
+
+
+def exposure(pdb_path,
+                    out_path,
+                    funcs: dict = {'2c50': f2_cutoff}, 
+                    assignment=None, 
+                    max_scores: dict = {'2c50': 26.5}, 
+                    save_matrix: bool = False, 
+                    save_scores_as_vector: bool = False,
+                    progress_callback = None):
+
+    try:
+        filename = pdb_path.rsplit('/',1)[1]
+    except IndexError:
+        try:
+            filename = pdb_path.rsplit("\\",1)[1]
+        except IndexError:
+            filename = pdb_path
+            
+    filename, fileext = filename.rsplit('.',1)
+    fileext = '.' + fileext 
+
+    atomic_df = PandasPdb().read_pdb(pdb_path)
+
+    atomic_df = atomic_df.get_model(1)
+
+    atomic_df.df['ATOM'] = atomic_df.df['ATOM'].drop('model_id', axis = 1)
+
+
+    coords = np.vstack((atomic_df.df['ATOM']['x_coord'].to_numpy(), 
+                        atomic_df.df['ATOM']['y_coord'].to_numpy(), 
+                        atomic_df.df['ATOM']['z_coord'].to_numpy())).T
+    pair_scores = {}
+    out = []
+
+    start = time.time()
+    n = coords.shape[0]
+    d_cond = pdist(coords)  
+    for key, func in funcs.items():             # condensed distances (len m = n*(n-1)/2)
+        vals = func(d_cond)                  # elementwise func applied to condensed distances
+        # accumulate into per-atom sum vector without expanding to n x n
+        if assignment == None:
+            sums = np.zeros(n, dtype=vals.dtype)
+            idx = 0
+            for i in range(n-1):
+                # length of this row in condensed form = n - i - 1
+                l = n - i - 1
+                sums[i] += vals[idx: idx + l].sum()
+                # the vals in this block correspond to pairs (i, i+1..n-1)
+                sums[i+1: n] += vals[idx: idx + l]   # vector add to the other atoms
+                idx += l
+                
+            elapsed = time.time()-start
+            atomic_df.df['ATOM']['b_factor'] = max_scores[key] - sums
+            atomic_df.to_pdb(os.path.join(out_path, filename + '_' + key + fileext))
+
+            out += [[os.path.join(out_path, filename + '_' + key + fileext), min(max_scores[key] - sums), max(max_scores[key] - sums), elapsed, len(coords)]]
+    
+        elif type(assignment) == dict:
+            for k, assignment_vert in assignment.items():
+                idx = 0
+                sums = np.zeros(n, dtype=vals.dtype)
+                for i in range(n - 1):
+                    l = n - i - 1
+                    block = vals[idx: idx + l]          # values for pairs (i, i+1..n-1)
+                    # contribution to sums[i] from j>i: sum_j v_ij * assignment[j]
+                    sums[i] += np.dot(block, assignment_vert[i+1: n])
+                    # contribution to sums[j] from i when assignment[i] == 1:
+                    if assignment_vert[i] != 0:
+                        # we need to add v_ij * assignment[i] to sums[j] for j>i
+                        # since assignment[i] is scalar 0/1, this becomes either add block or skip
+                        sums[i+1: n] += block * assignment_vert[i]
+                    idx += l
+
+                elapsed = time.time()-start
+                atomic_df.df['ATOM']['b_factor'] = max_scores[key] - sums
+                atomic_df.to_pdb(os.path.join(out_path, filename + '_' + k + '_' + key + fileext))
+                out += [[os.path.join(out_path, filename + '_' + k + '_' + key + fileext), min(max_scores[key] - sums), max(max_scores[key] - sums), elapsed, len(coords)]]
+
+        else:
+            raise TypeError("assignment must be None or dict")
     return out
 
 
@@ -341,7 +445,6 @@ def create_3_vectors(pdb_path, chain1, feature):
         out1 = np.array(temp).astype(int)
 
     out2 = out_tot-out1
-
 
     return {name: out1, 'not'+name: out2, 'tot': out_tot}
 
@@ -555,4 +658,13 @@ def reciprocal_ticks(mn, mx, n = 4, intervals = [1,2,5,10]):
                 tick += -1/i
             break
     return np.array(ticks)
-    
+
+
+def max_n_for_full_matrix(fraction_of_avail=0.5, dtype=np.float64):
+    # fraction_of_avail: fraction of available RAM to use for the matrix
+    avail = psutil.virtual_memory().available
+    bytes_per_element = np.dtype(dtype).itemsize
+    max_bytes = int(avail * fraction_of_avail)
+    # n^2 * bytes_per_element <= max_bytes  ->  n <= sqrt(max_bytes/bytes_per_element)
+    return int(math.floor(math.sqrt(max_bytes / bytes_per_element)))
+

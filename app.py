@@ -31,14 +31,13 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from funcs import preprocess, f2_cutoff, create_3_vectors, exposure, average_score, score_v_localres, features
+from funcs import preprocess, create_3_vectors, exposure, score_v_localres, features
 
 basedir = os.path.dirname(__file__)
 standard_residues = ['LYS', 'LEU', 'THR', 'TYR', 'PRO', 'GLU', 'ASP', 'ILE', 'ALA', 'PHE', 'ARG',
                      'VAL', 'GLN', 'GLY', 'SER', 'TRP', 'CYS', 'HIS', 'ASN', 'MET', 'SEC', 'PYL']
 
 class CheckableComboBox(QComboBox):
-
     # Subclass Delegate to increase item height
     class Delegate(QStyledItemDelegate):
         def sizeHint(self, option, index):
