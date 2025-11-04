@@ -169,6 +169,7 @@ class MplCanvas(FigureCanvas):
 class MatplotlibWidget(QWidget):
     def __init__(self, parent=None, initial_image=None):
         super().__init__(parent)
+        self.setWindowTitle("Solvent Exposure Calculator")
         self.canvas = MplCanvas(self)
         self.toolbar = NavigationToolbar(self.canvas, self)
 
