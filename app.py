@@ -4,15 +4,14 @@ from biopandas.pdb import PandasPdb
 import numpy as np
 import matplotlib.pyplot as plt
 
-from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
-from matplotlib.backends.backend_qt5agg import NavigationToolbar2QT as NavigationToolbar
+from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
+from matplotlib.backends.backend_qtagg import NavigationToolbar2QT as NavigationToolbar
 from matplotlib.figure import Figure
 import matplotlib.ticker as ticker
 
-from PyQt5.QtCore import Qt, QObject, QThread, pyqtSignal, QEventLoop, QEvent
-from PyQt5.QtGui import QIcon, QPalette, QStandardItem, QFontMetrics, QKeySequence
-from PyQt5.QtWidgets import (
-    QAction,
+from PyQt6.QtCore import Qt, QObject, QThread, pyqtSignal, QEventLoop, QEvent
+from PyQt6.QtGui import QAction, QIcon, QPalette, QStandardItem, QFontMetrics, QKeySequence
+from PyQt6.QtWidgets import (
     QApplication,
     QCheckBox,
     QComboBox,
@@ -55,7 +54,7 @@ class CheckableComboBox(QComboBox):
         self.lineEdit().setReadOnly(True)
         # Make the lineedit the same color as QPushButton
         palette = QApplication.palette()
-        palette.setBrush(QPalette.Base, palette.button())
+        palette.setBrush(QPalette.ColorRole.Base, palette.button())
         self.lineEdit().setPalette(palette)
 
         # Use custom delegate
@@ -79,7 +78,7 @@ class CheckableComboBox(QComboBox):
     def eventFilter(self, object, event):
 
         if object == self.lineEdit():
-            if event.type() == QEvent.MouseButtonRelease:
+            if event.type() == QEvent.Type.MouseButtonRelease:
                 if self.closeOnLineEditClick:
                     self.hidePopup()
                 else:
@@ -88,14 +87,14 @@ class CheckableComboBox(QComboBox):
             return False
 
         if object == self.view().viewport():
-            if event.type() == QEvent.MouseButtonRelease:
+            if event.type() == QEvent.Type.MouseButtonRelease:
                 index = self.view().indexAt(event.pos())
                 item = self.model().item(index.row())
 
-                if item.checkState() == Qt.Checked:
-                    item.setCheckState(Qt.Unchecked)
+                if item.checkState() == Qt.CheckState.Checked:
+                    item.setCheckState(Qt.CheckState.Unchecked)
                 else:
-                    item.setCheckState(Qt.Checked)
+                    item.setCheckState(Qt.CheckState.Checked)
                 return True
         return False
 
@@ -119,13 +118,13 @@ class CheckableComboBox(QComboBox):
     def updateText(self):
         texts = []
         for i in range(self.model().rowCount()):
-            if self.model().item(i).checkState() == Qt.Checked:
+            if self.model().item(i).checkState() == Qt.CheckState.Checked:
                 texts.append(self.model().item(i).text())
         text = ", ".join(texts)
 
         # Compute elided text (with "...")
         metrics = QFontMetrics(self.lineEdit().font())
-        elidedText = metrics.elidedText(text, Qt.ElideRight, self.lineEdit().width())
+        elidedText = metrics.elidedText(text, Qt.TextElideMode.ElideRight, self.lineEdit().width())
         self.lineEdit().setText(elidedText)
 
     def addItem(self, text, data=None):
@@ -135,8 +134,8 @@ class CheckableComboBox(QComboBox):
             item.setData(text)
         else:
             item.setData(data)
-        item.setFlags(Qt.ItemIsEnabled | Qt.ItemIsUserCheckable)
-        item.setData(Qt.Unchecked, Qt.CheckStateRole)
+        item.setFlags(Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsUserCheckable)
+        item.setData(Qt.CheckState.Unchecked, Qt.ItemDataRole.CheckStateRole)
         self.model().appendRow(item)
 
     def addItems(self, texts, datalist=None):
@@ -151,7 +150,7 @@ class CheckableComboBox(QComboBox):
         # Return the list of selected items data
         res = []
         for i in range(self.model().rowCount()):
-            if self.model().item(i).checkState() == Qt.Checked:
+            if self.model().item(i).checkState() == Qt.CheckState.Checked:
                 res.append(self.model().item(i).data())
         return res
 
@@ -164,7 +163,7 @@ class MplCanvas(FigureCanvas):
         super().__init__(fig)
         # let Qt resize the canvas nicely
         self.setParent(parent)
-        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         self.updateGeometry()
 
 
@@ -487,7 +486,7 @@ class ScriptWorker(QObject):
         # emit request to main thread
         self.ask.emit(text)
         # block worker thread until main thread answers
-        loop.exec_()
+        loop.exec()
         # cleanup connection
         try:
             self.answer.disconnect(_on_answer)
@@ -507,8 +506,8 @@ class MainWindow(QMainWindow):
 
         # Create a Close action that respects platform shortcuts (⌘W on macOS)
         close_action = QAction("Close", self)
-        close_action.setShortcut(QKeySequence.Close)             # maps to ⌘W on mac
-        close_action.setShortcutContext(Qt.ApplicationShortcut)  # optional: keep it global
+        close_action.setShortcut(QKeySequence(QKeySequence.StandardKey.Close))             # maps to ⌘W on mac
+        close_action.setShortcutContext(Qt.ShortcutContext.ApplicationShortcut)  # optional: keep it global
         close_action.triggered.connect(self.close)
         file_menu.addAction(close_action)
 
@@ -517,7 +516,7 @@ class MainWindow(QMainWindow):
 
         # Set up Tabs
         tabs = QTabWidget()
-        tabs.setTabPosition(QTabWidget.North)
+        tabs.setTabPosition(QTabWidget.TabPosition.North)
         tabs.setMovable(False)
 
         ###
@@ -712,7 +711,7 @@ class MainWindow(QMainWindow):
         self.interactive_checkbox = QCheckBox("Interactive?")
         self.interactive_checkbox.setChecked(self.interactive)
         self.interactive_checkbox.stateChanged.connect(self._on_interactive_toggled)
-        bottom_h.addWidget(self.interactive_checkbox, alignment=Qt.AlignLeft)
+        bottom_h.addWidget(self.interactive_checkbox, alignment=Qt.AlignmentFlag.AlignLeft)
 
         # Plot button
         self.run_plot = QPushButton("Plot")
@@ -1001,11 +1000,11 @@ class MainWindow(QMainWindow):
         dlg = QMessageBox(self)
         dlg.setWindowTitle("User Input Required")
         dlg.setText(text)
-        dlg.setStandardButtons(QMessageBox.Yes | QMessageBox.No)
-        dlg.setDefaultButton(QMessageBox.Yes)
-        dlg.setIcon(QMessageBox.Question)
+        dlg.setStandardButtons(QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+        dlg.setDefaultButton(QMessageBox.StandardButton.Yes)
+        dlg.setIcon(QMessageBox.Icon.Question)
         button = dlg.exec()
-        yn = (button == QMessageBox.Yes)
+        yn = (button == QMessageBox.StandardButton.Yes)
         # send the answer back to the worker
         # worker.answer is a signal defined in worker; safe to emit from main thread
         self.worker.answer.emit(yn)

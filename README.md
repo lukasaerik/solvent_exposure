@@ -8,10 +8,10 @@ Simple tools to handle pdbs and calculate solvent exposure scores
 I recommend running this in its own environment. I will give examples for Anaconda, but use your own systems and pip if preferred.
 
 ```python
-conda create -n solvent_exposure pyqt=5
+conda create -n pypdb pyqt matplotlib ipykernel jupyter
 ```
 
-PyQt is not strictly necessary for only running in command line, as .py files, or in a notebook (.ipynb files). Feel free to omit if you want
+PyQt is not strictly necessary for only running in command line, as .py files, or in a notebook (.ipynb files). Feel free to omit if preferred
 
 Activate the environment and install the other dependencies:
 ```python
@@ -20,10 +20,6 @@ conda activate solvent_exposure
 
 ```python
 conda install -c conda-forge biopandas mplcursors
-```
-
-```python
-conda install matplotlib
 ```
 
 If you wish to run the .ipynb file in VS code or similar, install ipykernel
