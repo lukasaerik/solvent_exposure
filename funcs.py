@@ -4,8 +4,7 @@ from biopandas.pdb import PandasPdb
 from biopandas.mmcif import PandasMmcif
 import matplotlib.pyplot as plt
 import os, math, time, psutil
-from scipy.spatial.distance import pdist, squareform
-from scipy.spatial import cKDTree
+from scipy.spatial.distance import pdist
 
 basedir = os.path.dirname(__file__)
 standard_residues = ['LYS', 'LEU', 'THR', 'TYR', 'PRO', 'GLU', 'ASP', 'ILE', 'ALA', 'PHE', 'ARG',

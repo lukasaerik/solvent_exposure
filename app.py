@@ -1,8 +1,6 @@
-import sys, os, math, time, mplcursors
+import sys, os, time, mplcursors
 import pandas as pd
-from biopandas.pdb import PandasPdb
 import numpy as np
-import matplotlib.pyplot as plt
 
 from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.backends.backend_qtagg import NavigationToolbar2QT as NavigationToolbar
@@ -10,7 +8,7 @@ from matplotlib.figure import Figure
 import matplotlib.ticker as ticker
 
 from PyQt6.QtCore import Qt, QObject, QThread, pyqtSignal, QEventLoop, QEvent
-from PyQt6.QtGui import QAction, QIcon, QPalette, QStandardItem, QFontMetrics, QKeySequence
+from PyQt6.QtGui import QAction, QPalette, QStandardItem, QFontMetrics, QKeySequence
 from PyQt6.QtWidgets import (
     QApplication,
     QCheckBox,
