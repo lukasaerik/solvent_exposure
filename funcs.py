@@ -425,6 +425,15 @@ def average_score(pdb_path):
                 if x['atom_name'] in ['C', 'N', 'O', 'CA']:
                     backbone_atom_count+=1
                     backbone_score+=x['b_factor']
+                if x.equals(atomic_df.df['ATOM'].iloc[-1]):
+                    for j in range(atom_count):
+                        scores[i-j] = score / atom_count
+                        if backbone_atom_count != 0:
+                            backbone_scores[i-j] = backbone_score / backbone_atom_count
+
+                    atom_count=1
+                    score=x['b_factor']
+
             else:
                 for j in range(atom_count):
                     scores[i-j-1] = score / atom_count
@@ -441,6 +450,40 @@ def average_score(pdb_path):
                 else:
                     backbone_atom_count=0
                     backbone_score=0
+
+        # current_residue = atomic_df.df['ATOM'].iloc[0].loc['chain_id'] + str(atomic_df.df['ATOM'].iloc[0].loc['residue_number'])
+
+        # scores = np.zeros(len(atomic_df.df['ATOM']))
+        # backbone_scores = np.zeros(len(atomic_df.df['ATOM']))
+
+        # atom_count = 0
+        # score = 0
+        # backbone_atom_count = 0
+        # backbone_score = 0
+
+        # for i, x in atomic_df.df['ATOM'].iterrows():
+        #     if x['chain_id'] + str(x['residue_number']) == current_residue:
+        #         atom_count+=1
+        #         score+=x['b_factor']
+        #         if x['atom_name'] in ['C', 'N', 'O', 'CA']:
+        #             backbone_atom_count+=1
+        #             backbone_score+=x['b_factor']
+        #     else:
+        #         for j in range(atom_count):
+        #             scores[i-j-1] = score / atom_count
+        #             if backbone_atom_count != 0:
+        #                 backbone_scores[i-j-1] = backbone_score / backbone_atom_count
+
+        #         atom_count=1
+        #         score=x['b_factor']
+        #         current_residue = x['chain_id'] + str(x['residue_number'])
+
+        #         if x['atom_name'] in ['C', 'N', 'O', 'CA']:
+        #             backbone_atom_count=1
+        #             backbone_score=x['b_factor']
+        #         else:
+        #             backbone_atom_count=0
+        #             backbone_score=0
 
         atomic_df.df['ATOM']['b_factor'] = scores
         atomic_df.to_pdb(pdb_path.split('.',1)[0] + '_avgbyres.pdb')
