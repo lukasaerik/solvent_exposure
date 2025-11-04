@@ -1,4 +1,4 @@
-import sys, os, math, time
+import sys, os, math, time, mplcursors
 import pandas as pd
 from biopandas.pdb import PandasPdb
 import numpy as np
@@ -155,6 +155,7 @@ class CheckableComboBox(QComboBox):
                 res.append(self.model().item(i).data())
         return res
 
+
 class MplCanvas(FigureCanvas):
     """Simple Matplotlib FigureCanvas to hold one Axes."""
     def __init__(self, parent=None, width=5, height=5, dpi=100):
@@ -166,8 +167,8 @@ class MplCanvas(FigureCanvas):
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         self.updateGeometry()
 
+
 class MatplotlibWidget(QWidget):
-    """A QWidget containing a Matplotlib canvas and the standard toolbar."""
     def __init__(self, parent=None, initial_image=None):
         super().__init__(parent)
         self.canvas = MplCanvas(self)
@@ -179,143 +180,219 @@ class MatplotlibWidget(QWidget):
         self.setLayout(layout)
 
         if initial_image is None:
-            initial_image = [[0,5,10,15,20], [0.5,0.4,0.3,0.2,0.1]]
+            initial_image = [[0, 5, 10, 15, 20], [0.5, 0.4, 0.3, 0.2, 0.1]]
 
+        # draw initial plot (low-cost)
         self.canvas.ax.plot(*initial_image)
 
-        self._update_reciprocal_y_ticks()      # apply once immediately
+        # state used for debouncing
+        self._last_recip_update = 0.0
+
+        # keep a reference to the current mplcursors cursor for later cleanup
+        self._mpl_cursor = None
+
+        # Hook callbacks once (debounced inside)
         self._connect_tick_callbacks_once()
 
         self.canvas.figure.tight_layout()
-
         self.canvas.draw_idle()
 
     def update_image(self, array):
         self.canvas.ax.plot(*array)
         self.canvas.draw_idle()
 
-    def reciprocal_ticks(self, mn, mx, n = 4, intervals = [1, 2, 5, 10, 20, 50, 100]):
-        # your function, unchanged except ensure mn < mx and positive
+    def reciprocal_ticks(self, mn, mx, n=4, intervals=[1, 2, 5, 10, 20, 50, 100]):
         ticks = []
         if mn == mx:
             return np.array([])
-        # ensure mn < mx
         low = min(mn, mx)
         high = max(mn, mx)
-        # require positive region for reciprocals
         if high <= 0:
             return np.array([])
-        # clamp low to a small positive if it crosses zero
         if low <= 0:
             low = 1e-12
         for i in intervals:
-            # check whether this interval can provide enough ticks across [low, high]
             if i/low - i/high < n:
-                # not enough density for this interval, continue searching
                 continue
             else:
-                # start at ceil(i/low) / i and step by -1/i until <= 1/high
-                tick = math.ceil(i/low) / i
+                tick = np.ceil(i/low) / i
                 while tick > 1/high:
                     ticks.append(tick)
                     tick -= 1.0 / i
                 break
         return np.array(sorted(ticks))
 
-    # Place this inside your widget/class where ax and canvas are available.
     def _update_reciprocal_y_ticks(self, ax=None):
-        """Compute ticks from current y-limits and apply them as 1/x labels."""
+        """Compute labels and set reciprocal-style y-ticks. Debounced to avoid frequent runs."""
+        # debounce: allow at most ~6-7 updates per second
+        now = time.time()
+        if now - getattr(self, "_last_recip_update", 0.0) < 0.15:
+            return
+        self._last_recip_update = now
+
         if ax is None:
             ax = self.canvas.ax
         ymin, ymax = ax.get_ylim()
-        # we assume y values are positive (1/Å). If not, fall back to formatter only.
         if ymax <= 0:
-            # fallback: just format existing ticks as 1/(1/y) but can't do negative/zero
             ax.yaxis.set_major_formatter(ticker.FuncFormatter(lambda y, pos: f"{y:g}"))
+            # one draw_idle is fine here because this code is already debounced
             self.canvas.draw_idle()
             return
 
-        # compute ticks in the current data space
         ticks = self.reciprocal_ticks(ymin, ymax)
         if ticks.size == 0:
-            # no nice reciprocal ticks found — keep existing ticks but format them
             ax.yaxis.set_major_formatter(ticker.FuncFormatter(lambda y, pos: f"1/{1/y:.3g}" if y != 0 else "0"))
         else:
             ax.set_yticks(1/ticks)
-            # set labels as 1/<denominator> where denominator is 1/y
             labels = []
             for val in ticks:
                 if val == 0:
                     labels.append("0")
                 else:
                     denom = val
-                    # pretty formatting: remove trailing zeros, but keep .5 if present
                     if abs(denom - round(denom)) < 1e-8:
                         labels.append(f"1/{int(round(denom))}")
                     else:
                         labels.append(f"1/{denom:g}")
             ax.set_yticklabels(labels)
 
+        # draw once after updates (debounced)
         self.canvas.draw_idle()
 
-    # Call this once after you create the axes to hook callbacks (e.g., in plot_score_vs_resolution)
     def _connect_tick_callbacks_once(self):
         ax = self.canvas.ax
-        # avoid connecting multiple times
         if getattr(self, "_recip_callbacks_connected", False):
             return
-        # connect to ylim_changed (passes the Axes object as argument)
-        ax.callbacks.connect('ylim_changed', lambda ax: self._update_reciprocal_y_ticks(ax))
-        # also connect to draw_event on the figure as a fallback (passes event)
+        # connect to ylim_changed using a lambda that calls debounced updater
+        ax.callbacks.connect('ylim_changed', lambda a: self._update_reciprocal_y_ticks(a))
+        # also connect to draw_event as a fallback
         self.canvas.mpl_connect('draw_event', lambda event: self._update_reciprocal_y_ticks())
         self._recip_callbacks_connected = True
 
-
     def plot_score_vs_resolution(self, x, y, names=None, xlabel=None, ylabel=None):
-        # clear old plot
-        self.canvas.ax.clear()
-        sc = self.canvas.ax.scatter(x, y, s=10, picker=True)
+        ax = self.canvas.ax
+        ax.clear()
+
+        # scatter plot; avoid heavy features like very large markers
+        sc = ax.scatter(x, y, s=10)
 
         if xlabel:
-            self.canvas.ax.set_xlabel(xlabel)
+            ax.set_xlabel(xlabel)
         if ylabel:
-            self.canvas.ax.set_ylabel(ylabel)
+            ax.set_ylabel(ylabel)
 
-        # create annotation on the canvas (main thread)
-        annot = self.canvas.ax.annotate("", xy=(0,0), xytext=(20,20), textcoords="offset points",
-                                    bbox=dict(boxstyle="round", fc="w"), arrowprops=dict(arrowstyle="->"))
-        annot.set_visible(False)
+        # Clean up previous cursor if present
+        try:
+            if self._mpl_cursor is not None:
+                self._mpl_cursor.disconnect()
+        except Exception:
+            pass
 
-        def update_annot(ind):
-            pos = sc.get_offsets()[ind["ind"][0]]
-            annot.xy = pos
-            text = "{}".format(" ".join([names[n] for n in ind["ind"]])) if names else ""
-            annot.set_text(text)
-            annot.get_bbox_patch().set_alpha(0.8)
+        # Reset active annotation holder
+        self._active_annotation = None
 
-        def hover(event):
-            vis = annot.get_visible()
-            if event.inaxes == self.canvas.ax:
-                cont, ind = sc.contains(event)
-                if cont:
-                    update_annot(ind)
-                    annot.set_visible(True)
-                    self.canvas.draw_idle()
-                else:
-                    if vis:
-                        annot.set_visible(False)
+        # Create an mplcursors cursor for this scatter collection
+        self._mpl_cursor = mplcursors.cursor(sc, hover=True)
+
+        def _on_add(sel):
+            i = sel.index
+            if names is not None:
+                try:
+                    ch, resatom = names[i].split(':',1)
+                    label = f"Chain {ch[1:]}\nResidue {resatom.split('@',1)[0]}\nAtom {resatom.split('@',1)[1]}"
+                except Exception:
+                    label = str(i)
+            else:
+                label = str(i)
+
+            # set text and style, and ensure visible
+            sel.annotation.set_text(label)
+            sel.annotation.get_bbox_patch().set_alpha(0.85)
+            sel.annotation.set_visible(True)
+
+            # hide any previously shown annotation (so old labels don't linger)
+            if getattr(self, "_active_annotation", None) is not None and self._active_annotation is not sel.annotation:
+                try:
+                    self._active_annotation.set_visible(False)
+                except Exception:
+                    pass
+
+            # mark this annotation as active and redraw once
+            self._active_annotation = sel.annotation
+            self.canvas.draw_idle()
+
+        def _on_remove(sel):
+            # hide the annotation for this selection
+            try:
+                sel.annotation.set_visible(False)
+            except Exception:
+                pass
+
+            # if it was the active annotation, clear the reference
+            if getattr(self, "_active_annotation", None) is sel.annotation:
+                self._active_annotation = None
+
+            # single redraw to clear the annotation
+            self.canvas.draw_idle()
+
+        # wire events
+        self._mpl_cursor.connect('add', _on_add)
+        self._mpl_cursor.connect('remove', _on_remove)
+
+        # --- Add a lightweight motion handler to hide annotation when cursor leaves all points ---
+        _last_motion = {"t": 0.0}
+        def _on_motion(event):
+            # Only do work if an annotation is currently visible (common case: most motion is ignored)
+            if getattr(self, "_active_annotation", None) is None:
+                return
+
+            # Throttle checks to reduce CPU (max ~15 fps here)
+            now = time.time()
+            if now - _last_motion["t"] < 0.066:  # ~66 ms
+                return
+            _last_motion["t"] = now
+
+            if event.inaxes != self.canvas.ax:
+                # Moved outside axes — hide active annotation
+                try:
+                    if self._active_annotation is not None:
+                        self._active_annotation.set_visible(False)
+                        self._active_annotation = None
                         self.canvas.draw_idle()
+                except Exception:
+                    pass
+                return
 
-        
-        
-        
-        # connect on the FigureCanvas instance
-        self.canvas.mpl_connect("motion_notify_event", hover)
+            # Check whether the mouse is over any scatter point
+            try:
+                contains, info = sc.contains(event)
+            except Exception:
+                contains = False
 
-        self._update_reciprocal_y_ticks()      # apply once immediately
+            if not contains:
+                # cursor not over any point: hide active annotation and redraw
+                try:
+                    if self._active_annotation is not None:
+                        self._active_annotation.set_visible(False)
+                        self._active_annotation = None
+                        self.canvas.draw_idle()
+                except Exception:
+                    pass
+
+        # connect the motion handler; store the connection id in case you need to disconnect later
+        self._motion_cid = self.canvas.mpl_connect('motion_notify_event', _on_motion)
+
+        # wire events
+        self._mpl_cursor.connect('add', _on_add)
+        self._mpl_cursor.connect('remove', _on_remove)
+
+        self._update_reciprocal_y_ticks()
         self._connect_tick_callbacks_once()
-        self.canvas.figure.tight_layout()
+
+        # layout + single draw so the new plot actually appears
+        ax.figure.tight_layout()
         self.canvas.draw_idle()
+
 
 class ScriptWorker(QObject):
     started = pyqtSignal()
@@ -418,8 +495,6 @@ class ScriptWorker(QObject):
             pass
 
         return bool(response_holder['val'])
-
-
 
 
 class MainWindow(QMainWindow):

@@ -19,7 +19,7 @@ conda activate solvent_exposure
 ```
 
 ```python
-conda install -c conda-forge biopandas
+conda install -c conda-forge biopandas mplcursors
 ```
 
 ```python
