@@ -45,9 +45,9 @@ It is, in principle, possible to run the GUI version as a standalone app without
 * Externally generated .exe files are sometimes flagged as a potential virus 
 
 ## Running
-```funcs.py``` contains all standard functions, and is called by ```app.py``` and ```solvent_exposure.ipynb``` for running in a GUI or notebook, respectively.
+```funcs.py``` contains all standard functions, and is called by ```app.py``` and ```solvent_exposure.ipynb``` for running in a GUI or notebook, respectively. These are now annotated rather verbosely, so read the docstrings for more clarification.
 
-```app.py``` generates a GUI. This is the easiest way to use these functions as intended for beginner users. There are only limited options for custom calculations, but the GUI should cover all standard use cases.
+Running ```app.py``` generates a GUI. This is the easiest way to use these functions as intended for beginner users. There are only limited options for custom calculations, but the GUI should cover all standard use cases.
 
 ```solvent_exposure.ipynb``` is a notebook version that shows how to run standard calculations as intended, and a couple advanced options as examples.
 

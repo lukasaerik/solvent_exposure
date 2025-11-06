@@ -282,7 +282,7 @@ class MatplotlibWidget(QWidget):
             if names is not None:
                 try:
                     ch, resatom = names[i].split(':',1)
-                    label = f'Chain {ch[1:]}\nResidue {resatom.split('@',1)[0]}\nAtom {resatom.split('@',1)[1]}'
+                    label = f"Chain {ch[1:]}\nResidue {resatom.split('@',1)[0]}\nAtom {resatom.split('@',1)[1]}"
                 except Exception:
                     label = str(i)
             else:
@@ -383,15 +383,16 @@ class ScriptWorker(QObject):
             pre_path = settings.get('folder_pre_path')
             out_path = settings.get('folder_out_path')
             average = settings.get('average')
+            backbone = settings.get('backbone')
 
-            pre_out = preprocess(pdb_path=pdb_path, pre_path=pre_path, yes_no=self.yes_no)
+            pre_out = preprocess(pdb_path=pdb_path, pre_path=pre_path, yn=self.yes_no)
             self.progress.emit('Preprocessing complete')
-            result = exposure(pdb_path=pre_out, out_path=out_path, progress_callback=self.progress.emit)
+            result = exposure(pdb_path=pre_out, out_path=out_path)
             if average:
                 tempresult = []
                 for i in result:
-                    self.progress.emit(f'File {i[0]} saved. \n Min: {i[1]:2g} \n Max: {i[2]:2g}')
-                    tempresult += average_score(i[0])
+                    self.progress.emit(f'File {i[0]} saved. \n Min: {i[1]:.2f} \n Max: {i[2]:.2f}')
+                    tempresult += average_score(i[0], backbone=backbone)
                 result = tempresult
 
             self.finished.emit(result)
@@ -406,7 +407,7 @@ class ScriptWorker(QObject):
             pre_path = settings.get('folder_pre_path')
             feature = settings.get('feature')
 
-            pre_out = preprocess(pdb_path=pdb_path, pre_path=pre_path, yes_no=self.yes_no)
+            pre_out = preprocess(pdb_path=pdb_path, pre_path=pre_path, yn=self.yes_no)
             self.progress.emit('Preprocessing complete')
             features_out = features(pdb_path=pre_out, feature=feature)
             result = pre_out, features_out
@@ -423,15 +424,15 @@ class ScriptWorker(QObject):
             feature = settings.get('feature')
             combo = settings.get('combo')
             average = settings.get('average')
+            backbone = settings.get('backbone')
 
             assignment = create_3_vectors(pdb_path=pdb_path, chain1=combo, feature=feature)
-            result = exposure(pdb_path=pdb_path, out_path=out_path, assignment=assignment, progress_callback=self.progress.emit)
-            print("RESULT\n",result)
+            result = exposure(pdb_path=pdb_path, out_path=out_path, assignment=assignment)
             if average:
                 tempresult = []
                 for i in result:
-                    self.progress.emit(f'File {i[0]} saved. \n Min: {i[1]:2g} \n Max: {i[2]:2g}')
-                    tempresult += average_score(i[0])
+                    self.progress.emit(f'File {i[0]} saved. \n Min: {i[1]:.2f} \n Max: {i[2]:.2f}')
+                    tempresult += average_score(i[0], backbone=backbone)
                 result = tempresult
 
             self.finished.emit(result)
@@ -484,8 +485,8 @@ class MainWindow(QMainWindow):
         self.setWindowTitle('Solvent Exposure Calculation')
         file_menu = self.menuBar().addMenu('&File')
         close_action = QAction('Close', self)
-        close_action.setShortcut(QKeySequence(QKeySequence.StandardKey.Close))             # maps to ⌘W on mac
-        close_action.setShortcutContext(Qt.ShortcutContext.ApplicationShortcut)  # optional: keep it global
+        close_action.setShortcut(QKeySequence(QKeySequence.StandardKey.Close))  
+        close_action.setShortcutContext(Qt.ShortcutContext.ApplicationShortcut) 
         close_action.triggered.connect(self.close)
         file_menu.addAction(close_action)
         self.addAction(close_action)
@@ -506,9 +507,11 @@ class MainWindow(QMainWindow):
             'folder_pre_path': os.path.join(basedir, 'pdbs', 'preprocessed'),
             'folder_out_path': os.path.join(basedir, 'pdbs', 'out'),
             'average': True,
+            'backbone': False,
         }
 
         self.simple_average = True
+        self.simple_backbone = False
 
         # PDB file selection
         file_row = QHBoxLayout()
@@ -541,10 +544,17 @@ class MainWindow(QMainWindow):
         simple_form.addRow('Output Folder:', folder_out_row)
 
         # Average checkbox
+        simple_average_row = QHBoxLayout()
+
         self.simple_average_checkbox = QCheckBox('Average output per residue?')
         self.simple_average_checkbox.setChecked(self.simple_average)
         self.simple_average_checkbox.stateChanged.connect(self._on_simple_average_toggled)
-        simple_form.addRow('', self.simple_average_checkbox)
+        simple_average_row.addWidget(self.simple_average_checkbox)
+        self.simple_backbone_checkbox = QCheckBox('Also average only by backbone?')
+        self.simple_backbone_checkbox.setChecked(self.simple_backbone)
+        self.simple_backbone_checkbox.stateChanged.connect(self._on_simple_backbone_toggled)        
+        simple_average_row.addWidget(self.simple_backbone_checkbox)
+        simple_form.addRow('', simple_average_row)
 
         # Output text box
         self.simple_output = QTextEdit()
@@ -566,6 +576,7 @@ class MainWindow(QMainWindow):
         # Adduct Tab
         ###
         self.adduct_average = True
+        self.adduct_backbone = False
         adduct = QWidget()
         adduct_form = QFormLayout()
 
@@ -577,6 +588,7 @@ class MainWindow(QMainWindow):
             'folder_out_path': os.path.join(basedir, 'pdbs', 'out'),
             'combo': '',
             'average': True,
+            'backbone': False,
         }
 
         # PDB File selection
@@ -628,10 +640,16 @@ class MainWindow(QMainWindow):
         adduct_form.addRow('Output Folder:', adduct_folder_out_row)
 
         # Average checkbox
+        adduct_average_row = QHBoxLayout()
         self.adduct_average_checkbox = QCheckBox('Average output per residue?')
         self.adduct_average_checkbox.setChecked(self.adduct_average)
         self.adduct_average_checkbox.stateChanged.connect(self._on_adduct_average_toggled)
-        adduct_form.addRow('', self.adduct_average_checkbox)
+        adduct_average_row.addWidget(self.adduct_average_checkbox)
+        self.adduct_backbone_checkbox = QCheckBox('Also average only by backbone?')
+        self.adduct_backbone_checkbox.setChecked(self.adduct_backbone)
+        self.adduct_backbone_checkbox.stateChanged.connect(self._on_adduct_backbone_toggled)        
+        adduct_average_row.addWidget(self.adduct_backbone_checkbox)
+        adduct_form.addRow('', adduct_average_row)
 
         # Bottom: Run Button
         self.run_adduct_out = QPushButton('Calculate')
@@ -759,7 +777,7 @@ class MainWindow(QMainWindow):
         self.run_adduct_pre.setEnabled(True)
         self.run_plot.setEnabled(True)
         for i in result:
-            self.simple_output.append(f'File {i[0]} saved. \n Min: {i[1]:2g} \n Max: {i[2]:2g}')
+            self.simple_output.append(f'File {i[0]} saved. \n Min: {i[1]:.2f} \n Max: {i[2]:.2f}')
 
     def on_worker_simple_error(self, err_str):
         self.run_simple.setEnabled(True)
@@ -813,7 +831,7 @@ class MainWindow(QMainWindow):
         self.run_plot.setEnabled(True)     
         pre_out, options = result
         self.current_adduct_settings['pre_out_path'] = pre_out
-        self.adduct_output.append(f'File {pre_out} saved. \n There were {len(options)} unique entries under {self.current_adduct_settings.get('feature')}.')
+        self.adduct_output.append(f"File {pre_out} saved. \n There were {len(options)} unique entries under {self.current_adduct_settings.get('feature')}.")
         self.combo.clear()
         self.combo.addItems(options)
 
@@ -824,37 +842,41 @@ class MainWindow(QMainWindow):
     def on_run_adduct_out_clicked(self):
         # gather values
         updated_settings = self.get_adduct_settings()
-        for k in updated_settings:
-            self.current_adduct_settings[k] = updated_settings.get(k)
+        if updated_settings['combo'] == []:
+            self.adduct_output.append('You much select at least one entry under Combo')
+        else:
+            for k in updated_settings:
+                self.current_adduct_settings[k] = updated_settings.get(k)
 
-        # disable run button while running
-        self.run_simple.setEnabled(False)
-        self.run_plot.setEnabled(False)
-        self.run_adduct_out.setEnabled(False)
-        self.run_adduct_pre.setEnabled(False)
-        self.adduct_file_browse.setEnabled(False)
-        self.adduct_folder_pre_browse.setEnabled(False)
-        self.adduct_folder_out_browse.setEnabled(False)
-        self.run_plot.setEnabled(False)
 
-        # create worker & thread
-        self.thread = QThread()
-        self.worker = ScriptWorker(settings=self.current_adduct_settings.copy())
-        self.worker.moveToThread(self.thread)
+            # disable run button while running
+            self.run_simple.setEnabled(False)
+            self.run_plot.setEnabled(False)
+            self.run_adduct_out.setEnabled(False)
+            self.run_adduct_pre.setEnabled(False)
+            self.adduct_file_browse.setEnabled(False)
+            self.adduct_folder_pre_browse.setEnabled(False)
+            self.adduct_folder_out_browse.setEnabled(False)
+            self.run_plot.setEnabled(False)
 
-        # connect signals
-        self.thread.started.connect(self.worker.run_adduct_out)
-        self.worker.progress.connect(self.adduct_output.append)
-        self.worker.finished.connect(self.on_worker_adduct_out_finished)
-        self.worker.error.connect(self.on_worker_adduct_out_error)
-        self.worker.finished.connect(self.thread.quit)
-        self.worker.finished.connect(self.worker.deleteLater)
-        self.thread.finished.connect(self.thread.deleteLater)
-        
-        self.worker.ask.connect(self._on_worker_ask_question)
+            # create worker & thread
+            self.thread = QThread()
+            self.worker = ScriptWorker(settings=self.current_adduct_settings.copy())
+            self.worker.moveToThread(self.thread)
 
-        # start the thread
-        self.thread.start()
+            # connect signals
+            self.thread.started.connect(self.worker.run_adduct_out)
+            self.worker.progress.connect(self.adduct_output.append)
+            self.worker.finished.connect(self.on_worker_adduct_out_finished)
+            self.worker.error.connect(self.on_worker_adduct_out_error)
+            self.worker.finished.connect(self.thread.quit)
+            self.worker.finished.connect(self.worker.deleteLater)
+            self.thread.finished.connect(self.thread.deleteLater)
+            
+            self.worker.ask.connect(self._on_worker_ask_question)
+
+            # start the thread
+            self.thread.start()
 
     def on_worker_adduct_out_finished(self, result):
         # re-enable run button
@@ -867,7 +889,7 @@ class MainWindow(QMainWindow):
         self.adduct_folder_out_browse.setEnabled(True)    
         self.run_plot.setEnabled(True)
         for i in result:
-            self.adduct_output.append(f'File {i[0]} saved. \n Min: {i[1]:2g} \n Max: {i[2]:2g}')
+            self.adduct_output.append(f'File {i[0]} saved. \n Min: {i[1]:.2f} \n Max: {i[2]:.2f}')
 
     def on_worker_adduct_out_error(self, err_str):
         self.run_adduct_out.setEnabled(True)
@@ -875,17 +897,22 @@ class MainWindow(QMainWindow):
 
     def _on_simple_average_toggled(self, state):
         self.simple_average = bool(state)
-        # reflect in current_plot_settings immediately
         self.current_simple_settings['average'] = self.simple_average
+
+    def _on_simple_backbone_toggled(self, state):
+        self.simple_backbone = bool(state)
+        self.current_simple_settings['backbone'] = self.simple_backbone
 
     def _on_adduct_average_toggled(self, state):
         self.adduct_average = bool(state)
-        # reflect in current_plot_settings immediately
         self.current_adduct_settings['average'] = self.adduct_average
+
+    def _on_adduct_backbone_toggled(self, state):
+        self.adduct_backbone = bool(state)
+        self.current_adduct_settings['backbone'] = self.adduct_backbone
 
     def _on_only_chains_toggled(self, state):
         self.only_chain = bool(state)
-        # reflect in current_plot_settings immediately
         self.current_plot_settings['only_chain'] = self.only_chain
 
     def on_run_plot_clicked(self):
@@ -1003,6 +1030,7 @@ class MainWindow(QMainWindow):
             'folder_pre_path': self.folder_pre_edit.text(),
             'folder_out_path': self.folder_out_edit.text(),
             'average': self.simple_average,
+            'backbone': self.simple_backbone,
         }
     
     def get_adduct_settings(self):
@@ -1013,6 +1041,7 @@ class MainWindow(QMainWindow):
             'feature': self.adduct_feature.currentText(),
             'combo': self.combo.currentData(),
             'average': self.adduct_average,
+            'backbone': self.simple_backbone,
         }
     
     def get_plot_settings(self):
