@@ -28,13 +28,15 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from funcs import preprocess, create_3_vectors, exposure, score_v_localres, features, average_score
+from funcs import preprocess, create_3_vectors, exposure, score_v_localres, features, average_score, standard_residues
 
 basedir = os.path.dirname(__file__)
-standard_residues = ['LYS', 'LEU', 'THR', 'TYR', 'PRO', 'GLU', 'ASP', 'ILE', 'ALA', 'PHE', 'ARG',
-                     'VAL', 'GLN', 'GLY', 'SER', 'TRP', 'CYS', 'HIS', 'ASN', 'MET', 'SEC', 'PYL']
+
 
 class CheckableComboBox(QComboBox):
+    '''
+    Custom Widget for a combo box where multiple entries can be selected.
+    '''
     # Subclass Delegate to increase item height
     class Delegate(QStyledItemDelegate):
         def sizeHint(self, option, index):
@@ -164,6 +166,9 @@ class MplCanvas(FigureCanvas):
 
 
 class MatplotlibWidget(QWidget):
+    '''
+    Custom Widget for interactive matplotlib plots.
+    '''
     def __init__(self, parent=None, initial_image=None):
         super().__init__(parent)
         self.setWindowTitle('Solvent Exposure Calculator')
@@ -187,6 +192,9 @@ class MatplotlibWidget(QWidget):
         self.canvas.draw_idle()
 
     def reciprocal_ticks(self, mn, mx, n=4, intervals=[1, 2, 5, 10, 20, 50, 100]):
+        '''
+        Same premise as funcs.reciprocal_ticks, but designed for GUI use.
+        '''
         ticks = []
         if mn == mx:
             return np.array([])
@@ -363,6 +371,9 @@ class MatplotlibWidget(QWidget):
 
 
 class ScriptWorker(QObject):
+    '''
+    Class which contains scripts that are run for calculations and the signalling to enable communication.
+    '''
     started = pyqtSignal()
     finished = pyqtSignal(object)   # can emit results
     error = pyqtSignal(str)
@@ -375,6 +386,9 @@ class ScriptWorker(QObject):
         self.settings = settings  # dict of settings
 
     def run_simple(self):
+        '''
+        Script which runs simple solvent exposure calculation for an inputted pdb or mmcif file.
+        '''
         self.started.emit()
         try:
             settings = self.settings
@@ -400,6 +414,9 @@ class ScriptWorker(QObject):
             self.error.emit(str(e))
 
     def run_adduct_pre(self):
+        '''
+        Script which runs preprocessing for solvent exposure calculation, quantifying the contributions from a subset of atoms.
+        '''
         self.started.emit()
         try:
             settings = self.settings
@@ -416,6 +433,9 @@ class ScriptWorker(QObject):
             self.error.emit(str(e))
 
     def run_adduct_out(self):
+        '''
+        Script which runs the solvent exposure calculation, quantifying the contributions from a subset of atoms.
+        '''
         self.started.emit()
         try:
             settings = self.settings
@@ -440,6 +460,9 @@ class ScriptWorker(QObject):
             self.error.emit(str(e))
 
     def run_plot(self):
+        '''
+        Returns the entries necessary for the GUI to plot local resolution versus solvent exposure score.
+        '''
         self.started.emit()
         try:
             settings = self.settings
@@ -454,8 +477,7 @@ class ScriptWorker(QObject):
         
     def yes_no(self, text):
         '''
-        Called from worker thread. Will emit `ask` (handled in main thread)
-        and wait for `answer` to be emitted by main thread.
+        Sets up the communication for a popup yes/no window.
         '''
         loop = QEventLoop()
         response_holder = {'val': None}
@@ -480,7 +502,13 @@ class ScriptWorker(QObject):
 
 
 class MainWindow(QMainWindow):
+    '''
+    Main window of the application, as well as the functions that enable communication between GUI elements and running scripts.
+    '''
     def __init__(self):
+        '''
+        Main Window Layout
+        '''
         super().__init__()
         self.setWindowTitle('Solvent Exposure Calculation')
         file_menu = self.menuBar().addMenu('&File')

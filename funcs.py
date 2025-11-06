@@ -26,9 +26,8 @@ def yes_no(text: str) -> bool:
         return True
     elif yn == 'n':
         return False
-    else:
-        print('Enter y or n')
-        yes_no(text=text)
+    print('Enter y or n')
+    yes_no(text=text)
     
 
 def read_pdb_mmcif(filepath: str, append_heteroatoms: 'function' = None) -> PandasPdb | str:
@@ -89,7 +88,7 @@ def read_pdb_mmcif(filepath: str, append_heteroatoms: 'function' = None) -> Pand
     return atomic_df, filename
 
 
-def preprocess(pdb_path: str, 
+def preprocess_iterate(pdb_path: str, 
                pre_path: str,
                yn: 'function',
                include: list = ['C', 'N', 'O', 'S'], 
@@ -190,18 +189,132 @@ def preprocess(pdb_path: str,
     return out_path
 
 
-def f2_cutoff(d: float|np.ndarray, cutoff: float = 50.0, eps: float = 1e100) -> float|np.ndarray:
+def preprocess(
+    pdb_path: str,
+    pre_path: str,
+    yn: 'function',
+    include: list = ['C', 'N', 'O', 'S'],
+    redefine_chains: bool = False) -> str:
+    """
+    Simple preprocessing of pdb and mmcif files. 
+    By default, removes all atoms that do not begin with C, N, O, or S; this normally only leaves carbon, nitrogen, oxygen, sulfur, and selenium for biological molecules.
+    Non-standard residue names are flagged, and the user decides whether to include or not in the preprocessed file.
+
+    Args:
+        pdb_path (str): The path of the file to be preprocessed (typically pdb or mmcif).
+        pre_path (str): The path of the folder inside which the preprocessed pdb will be saved.
+        yn (function, optional): For obtaining user input for yes/no questions.
+        include (list, optional): If the first letter of an atom's 'atom_name' entry in the pdb/mmcif file is in this list, it will be included in the preprocessed file. If not, it will be removed.
+        redefine_chains (bool, optional): If true, each chain will be relabeled, starting with A and going on alphabetically.
+
+    Returns:
+        out_path (str): The path of the saved preprocessed pdb.
+    """
+    atomic_df, filename = read_pdb_mmcif(filepath=pdb_path, append_heteroatoms=yn)
+    atoms = atomic_df.df["ATOM"].copy()
+
+    # Normalize expected columns exist
+    required_cols = ["atom_name", "occupancy", "residue_name", "chain_id", "residue_number"]
+    for c in required_cols:
+        if c not in atoms.columns:
+            raise KeyError(f"Expected column '{c}' in ATOM dataframe")
+
+    # 1) Base mask: first-letter of atom_name is in include AND occupancy > 0.5
+    atom_prefix = atoms["atom_name"].astype(str).str[0]
+    mask_gt_half = (atom_prefix.isin(include)) & (atoms["occupancy"].astype(float) > 0.5)
+
+    # 2) Handle occupancy == 0.5: include only the first occurrence per (chain_id, residue_number, atom_name)
+    half_mask = atoms["occupancy"].astype(float) == 0.5
+    if half_mask.any():
+        # Build a string key safely (cast to str first)
+        key = (
+            atoms["chain_id"].astype(str)
+            + "_"
+            + atoms["residue_number"].astype(str)
+            + "_"
+            + atoms["atom_name"].astype(str)
+        )
+        # keep the first occurrence of each key among the half-occupancy rows
+        # we want: among rows where occupancy == 0.5, mark True for the first row of each key
+        first_half = ~key.duplicated() & half_mask
+    else:
+        first_half = pd.Series(False, index=atoms.index)
+
+    # combine masks: either >0.5 or first half-occurrence
+    keep_mask = mask_gt_half | first_half
+
+    # 3) Non-standard residues: prompt once per residue and include/exclude all atoms of that residue
+    std_res = set(standard_residues)
+    residue_names = pd.Index(atoms["residue_name"].astype(str).unique())
+    nonstandard = [r for r in residue_names if r not in std_res]
+
+    added_residues = set()
+    deleted_residues = set()
+    for res in nonstandard:
+        # ask user once per residue type
+        include_res = yn(f"Would you like to include residue {res}?")
+        if include_res:
+            added_residues.add(res)
+        else:
+            deleted_residues.add(res)
+
+    # Compose final residue mask
+    allowed_residues = std_res.union(added_residues)
+    residue_ok = atoms["residue_name"].astype(str).isin(allowed_residues)
+    residue_deleted = atoms["residue_name"].astype(str).isin(deleted_residues)
+
+    # atoms must satisfy keep_mask AND be allowed by residue selection (and not explicitly deleted)
+    keep_mask &= residue_ok & (~residue_deleted)
+
+    # 4) Optionally redefine chains:
+    if redefine_chains:
+        # We'll reassign chain IDs so that chain labels start at 'A' and increment when residue_number decreases
+        # This replicates "relabel each chain starting with A and going on alphabetically".
+        # We iterate over residues only (not per atom), building a mapping from original (chain_id,residue_number)
+        # to new chain letters; then map it back to atoms.
+        res_index = atoms[["chain_id", "residue_number"]].astype(str)
+        # Compose residue-level keys maintaining original order
+        res_keys = res_index["chain_id"] + "_" + res_index["residue_number"]
+        # We want to order by the original dataframe order and detect when residue_number decreases -> new chain
+        # Extract residue_numbers as integers for change detection (preserve order)
+        resnums = atoms["residue_number"].astype(int).to_numpy()
+        new_chain_letters = []
+        current_letter_ord = ord("A")
+        last_resnum = None
+        # We'll treat a decrease in residue_number as chain boundary (as in original code)
+        for rn in resnums:
+            if last_resnum is None:
+                # first residue -> current letter
+                new_chain_letters.append(chr(current_letter_ord))
+                last_resnum = rn
+                continue
+            if rn < last_resnum:
+                # new chain
+                current_letter_ord += 1
+            new_chain_letters.append(chr(current_letter_ord))
+            last_resnum = rn
+        atoms.loc[:, "chain_id"] = new_chain_letters
+
+    # 5) Apply mask and save the preprocessed pdb
+    atomic_df.df["ATOM"] = atoms.loc[keep_mask].copy()
+    out_path = os.path.join(pre_path, f"{filename}.pdb")
+    atomic_df.to_pdb(out_path)
+
+    return out_path
+
+
+def f2_cutoff(d: float|np.ndarray, cutoff: float = 50.0, eps: float = np.inf) -> float|np.ndarray:
     """
     Vector-safe (accepts scalars or numpy arrays for faster operation) version of scoring function. 
     - Returns 0 for distances, d, above 0
     - Returns d ** -2 for distances within cutoff
-    - Returns 1e-200 for distances ≈ 0 -> atom does not count towards its own score
+    - Returns inf for distances ≈ 0 -> atom does not count towards its own score
     - Replaces any nan/inf with finite numbers (0.0) for safety
 
     Args:
         d (scalar or numpy array): Distance between two atoms or array of distances between atoms.
         cutoff (float, optional): Cutoff distance; inputs greater than this will return 0.
-        eps (float, optional): Epsilon used for distance ≈ 0. Purposefully very large so that each atom does not contribute to its own score.
+        eps (float, optional): Epsilon used for distance ≈ 0. Purposefully infinite so that each atom does not contribute to its own score.
 
     Returns:
         scores (float or numpy array): Score or array of scores for input of scalar d or numpy array d, respectively.
@@ -830,13 +943,8 @@ def features(pdb_path: str, feature: str, yn: 'function' = yes_no) -> list:
     Returns:
         out (list): A list of all unique entries under feature. Typically a list of strings, integers, or floats.
     """    
-    atomic_df, filename = read_pdb_mmcif(filepath=pdb_path, append_heteroatoms=yn)
-    out = []
-    for chain in atomic_df.df['ATOM'][feature]:
-        if chain not in out:
-            out = out + [chain]
-
-    return out
+    atomic_df, _ = read_pdb_mmcif(filepath=pdb_path, append_heteroatoms=yn)
+    return atomic_df.df['ATOM'][feature].drop_duplicates().tolist()
 
 
 def reciprocal_ticks(mn: float,
@@ -874,7 +982,7 @@ def reciprocal_ticks(mn: float,
         ticks = []
         for interval in intervals:
             if interval/mn - interval/mx < n:
-                None
+                continue
             else:
                 tick = math.ceil(interval/mn)/interval
                 while tick > interval/mx:
@@ -885,12 +993,12 @@ def reciprocal_ticks(mn: float,
     return np.array(ticks)
 
 
-def max_n_for_full_matrix(fraction_of_avail: int = 0.5, dtype: type = np.float64) -> int:
+def max_n_for_full_matrix(fraction_of_avail: float = 0.5, dtype: type = np.float64) -> int:
     """
     Calculates size, n, of an n x n matrix with specified dtype that can be generated when using a specified fraction of available memory.
 
     Args:
-        fraction_of_avail (int, optional): Maximum fraction of available memory to use for the matrix.
+        fraction_of_avail (float, optional): Maximum fraction of available memory to use for the matrix.
         dtype (type): data type of matrix elements.
 
     Returns:
@@ -902,5 +1010,4 @@ def max_n_for_full_matrix(fraction_of_avail: int = 0.5, dtype: type = np.float64
     max_bytes = int(avail * fraction_of_avail)
     # n^2 * bytes_per_element <= max_bytes  ->  n <= sqrt(max_bytes/bytes_per_element)
     return int(math.floor(math.sqrt(max_bytes / bytes_per_element)))
-
 
