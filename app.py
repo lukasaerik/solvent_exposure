@@ -1,12 +1,38 @@
-import sys, os, time, mplcursors
+import sys, os, time, mplcursors, traceback
 import numpy as np
+from pathlib import Path
+
+flags = [
+    "--disable-logging",
+    "--log-level=3",
+    "--disable-software-rasterizer",
+    "--disable-gpu",               # try remove this if you want to allow GPU; keep if crashes
+    "--single-process",
+    "--no-sandbox",
+    "--ignore-gpu-blacklist",
+    "--enable-webgl",
+    "--use-gl=angle",              # use ANGLE on Windows (Direct3D)
+    # "--use-gl=desktop",          # alternative: try desktop GL
+    # "--use-gl=swiftshader",      # alternative: use SwiftShader software GL (if available)
+    # "--enable-unsafe-webgpu",    # optional experimental
+]
+os.environ["QT_LOGGING_RULES"] = "qt.qpa.*=false;qt.webenginecontext.*=false"
+os.environ["QTWEBENGINE_CHROMIUM_FLAGS"] = " ".join(flags)
+os.environ["QT_QUICK_BACKEND"] = "software"
 
 from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.backends.backend_qtagg import NavigationToolbar2QT as NavigationToolbar
 from matplotlib.figure import Figure
 import matplotlib.ticker as ticker
 
-from PyQt6.QtCore import Qt, QObject, QThread, pyqtSignal, QEventLoop, QEvent
+try:
+    from PyQt6.QtWebEngineWidgets import QWebEngineView
+    WEBENGINE_AVAILABLE = True
+except Exception:
+    QWebEngineView = None
+    WEBENGINE_AVAILABLE = False
+
+from PyQt6.QtCore import Qt, QObject, QThread, pyqtSignal, QEventLoop, QEvent, QUrl
 from PyQt6.QtGui import QAction, QPalette, QStandardItem, QFontMetrics, QKeySequence
 from PyQt6.QtWidgets import (
     QApplication,
@@ -28,7 +54,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from funcs import preprocess, create_3_vectors, exposure, score_v_localres, features, average_score, standard_residues
+from funcs import preprocess, create_3_vectors, exposure, score_v_localres, features, average_score, visualize, standard_residues
 
 basedir = os.path.dirname(__file__)
 
@@ -701,6 +727,50 @@ class MainWindow(QMainWindow):
 
 
         ###
+        # Visualisation Tab
+        ###
+        visuals_widget = QWidget()
+        visuals_layout = QVBoxLayout()
+
+        # Top controls: PDB path and a render button
+        controls_h = QHBoxLayout()
+        self.visuals_pdb_edit = QLineEdit()
+        self.visuals_pdb_edit.setText(os.path.join(basedir, 'pdbs', 'out', '1u7g_2c50.pdb'))  # default
+        self.visuals_browse = QPushButton('Browse...')
+        self.visuals_browse.clicked.connect(self._browse_visuals_file)
+        controls_h.addWidget(QLabel('PDB:'))
+        controls_h.addWidget(self.visuals_pdb_edit)
+        controls_h.addWidget(self.visuals_browse)
+
+        # Render / Open controls
+        render_h = QHBoxLayout()
+        self.visuals_render_btn = QPushButton('Render (embed)')
+        # self.visuals_openbtn = QPushButton('Open in Browser')
+        render_h.addWidget(self.visuals_render_btn)
+        # render_h.addWidget(self.visuals_openbtn)
+
+        visuals_layout.addLayout(controls_h)
+        visuals_layout.addLayout(render_h)
+
+        # area to show the figure
+        if WEBENGINE_AVAILABLE:
+            self.visuals_view = QWebEngineView()
+            self.visuals_view.setMinimumHeight(480)
+            visuals_layout.addWidget(self.visuals_view)
+        else:
+            # fallback: show a label explaining missing dependency
+            self.visuals_info_label = QLabel("Qt WebEngine not available. Use 'Open in Browser' to view the figure externally.")
+            self.visuals_info_label.setWordWrap(True)
+            visuals_layout.addWidget(self.visuals_info_label)
+
+        visuals_widget.setLayout(visuals_layout)
+        tabs.addTab(visuals_widget, 'Protein Visualisation')
+
+        self.visuals_render_btn.clicked.connect(self._render_embed)
+        # self.visuals_openbtn.clicked.connect(self._open_in_browser)
+
+
+        ###
         # Plotting Tab
         ###
         self.only_chain = False
@@ -806,6 +876,9 @@ class MainWindow(QMainWindow):
         self.run_plot.setEnabled(True)
         for i in result:
             self.simple_output.append(f'File {i[0]} saved. \n Min: {i[1]:.2f} \n Max: {i[2]:.2f}')
+        print(f'{result[0][0]}')
+        self.visuals_pdb_edit.setText(f'{result[0][0]}')
+        self._render_embed
 
     def on_worker_simple_error(self, err_str):
         self.run_simple.setEnabled(True)
@@ -1050,6 +1123,58 @@ class MainWindow(QMainWindow):
         # send the answer back to the worker
         # worker.answer is a signal defined in worker; safe to emit from main thread
         self.worker.answer.emit(yn)
+        
+    def _browse_visuals_file(self):
+        fname, _ = QFileDialog.getOpenFileName(self, 'Select PDB or mmCIF', basedir, "PDB/CIF Files (*.pdb *.pdb.gz *.ent *.cif *.cif.gz)")
+        if fname:
+            self.visuals_pdb_edit.setText(fname)
+
+    # --- behaviour
+    def _render_embed(self):
+        pdb_path = self.visuals_pdb_edit.text().strip()
+        # print("[DEBUG] Render button clicked. pdb_path:", pdb_path, "python:", sys.executable)
+        if not pdb_path:
+            QMessageBox.warning(self, "No file", "Please select a PDB or mmCIF file first.")
+            return
+        if not Path(pdb_path).exists():
+            QMessageBox.critical(self, "File not found", f"Could not find file:\n{pdb_path}")
+            return
+
+        try:
+            fig = visualize(pdb_path=pdb_path)
+            if fig is None:
+                raise RuntimeError("visualize() returned None")
+        except Exception as e:
+            tb = traceback.format_exc()
+            # print("[ERROR] Exception while building figure:\n", tb)
+            QMessageBox.critical(self, "Visualization error", f"Could not build figure:\n{e}\n\nSee console for traceback.")
+            return
+
+        if not WEBENGINE_AVAILABLE:
+            QMessageBox.information(self, "No WebEngine", "Qt WebEngine not available; use 'Open in Browser' instead.")
+            return
+
+        try:
+            # Use full_html=True so we deliver a complete HTML doc to the QWebEngineView.
+            html = fig.to_html(include_plotlyjs='cdn', full_html=True)
+            # print(f"[DEBUG] fig.to_html() produced HTML length: {len(html)}")
+            # Provide explicit base QUrl which sometimes helps resources resolve correctly.
+            self.visuals_view.setHtml(html, QUrl("about:blank"))
+            # Force a reload if nothing shows up immediately (harmless).
+            self.visuals_view.reload()
+            # print("[DEBUG] setHtml called and reload requested.")
+        except Exception as e:
+            tb = traceback.format_exc()
+            # print("[ERROR] Exception while embedding HTML:\n", tb)
+            QMessageBox.critical(self, "Embed error", f"Could not embed figure:\n{e}\n\nSee console for traceback.")
+
+    def _open_in_browser(self):
+        pdb_path = self.visuals_pdb_edit.text().strip()
+        try:
+            fig = visualize(pdb_path=pdb_path)
+            fig.show()  # will open in browser / external viewer
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"Could not build or show figure:\n{e}")
 
     def get_simple_settings(self):
         # Return a dict of settings

@@ -3,7 +3,8 @@ import pandas as pd
 from biopandas.pdb import PandasPdb
 from biopandas.mmcif import PandasMmcif
 import matplotlib.pyplot as plt
-import os, math, time, psutil, warnings
+import plotly.express as px
+import os, math, time, psutil, warnings, plotly
 from scipy.spatial.distance import pdist
 
 basedir = os.path.dirname(__file__)
@@ -646,12 +647,12 @@ def average_score(filepath: str, backbone: bool = False) -> list[list[str|float|
 
         atomic_df.df['ATOM']['b_factor'] = scores
         atomic_df.to_pdb(filepath.split('.',1)[0] + '_avgbyres.pdb')
-        out += [[filename + '_avgbyres.pdb', min(scores), max(scores)]]
+        out += [[filepath.rsplit('.',1)[0] + '_avgbyres.pdb', min(scores), max(scores)]]
 
         if backbone:
             atomic_df.df['ATOM']['b_factor'] = backbone_scores
             atomic_df.to_pdb(filepath.split('.',1)[0] + '_avgbyresbb.pdb')
-            out += [[filename + '_avgbyresbb.pdb', min(backbone_scores), max(backbone_scores)]]
+            out += [[filepath.rsplit('.',1)[0] + '_avgbyresbb.pdb', min(backbone_scores), max(backbone_scores)]]
 
     return out
     
@@ -940,16 +941,82 @@ def score_v_localres(pdb_path: str,
 
             fig.canvas.mpl_connect("motion_notify_event", hover)
 
+            # Avoid calling plt.show() if a Qt application is running (prevents stealing focus / spawning windows).
             try:
-                # For ipympl in notebooks, explicit show helps
-                plt.show()
+                # import lazily so funcs.py doesn't require PyQt unless running under GUI
+                from PyQt6.QtWidgets import QApplication
+                qt_app = QApplication.instance()
             except Exception:
-                plt.ion()
-                plt.show()
+                qt_app = None
+
+            if qt_app is None:
+                # no Qt app -> safe to show normally (scripts / notebooks)
+                try:
+                    plt.show()
+                except Exception:
+                    plt.ion()
+                    plt.show()
+            else:
+                # running inside Qt app -> do not block; optionally flush drawings
+                try:
+                    plt.pause(0.001)
+                except Exception:
+                    pass
             return {'fig': fig, 'ax': ax, 'sc': sc, 'names': names}
         else:
-            plt.show()
+            # Avoid calling plt.show() if a Qt application is running (prevents stealing focus / spawning windows).
+            try:
+                # import lazily so funcs.py doesn't require PyQt unless running under GUI
+                from PyQt6.QtWidgets import QApplication
+                qt_app = QApplication.instance()
+            except Exception:
+                qt_app = None
+
+            if qt_app is None:
+                # no Qt app -> safe to show normally (scripts / notebooks)
+                try:
+                    plt.show()
+                except Exception:
+                    plt.ion()
+                    plt.show()
+            else:
+                # running inside Qt app -> do not block; optionally flush drawings
+                try:
+                    plt.pause(0.001)
+                except Exception:
+                    pass
             return {'fig': fig, 'ax': ax, 'sc': sc, 'names': names}
+
+
+def visualize(pdb_path: str,
+              b_factor_range: list = [0, 20],
+              append_heteroatoms: 'function' = yes_no) -> 'plotly.graph_objs._figure.Figure':
+    """
+    Build and return a Plotly Figure for the given pdb_path.
+    DOES NOT call fig.show() so GUI can embed the result.
+    """
+    # defensive: validate pdb_path
+    if not pdb_path:
+        raise ValueError("No pdb_path provided to visualize()")
+    # optional: allow absolute/relative paths; don't hardcode a file
+    atomic_df, _ = read_pdb_mmcif(filepath=pdb_path, append_heteroatoms=append_heteroatoms)
+
+    fig = px.scatter_3d(
+        atomic_df.df["ATOM"],
+        x='x_coord', y='y_coord', z='z_coord',
+        color='b_factor',
+        color_continuous_scale=[
+            (0, '#ffffff'),
+            (0.25, '#ffff00'),
+            (0.5, '#ff0000'),
+            (0.75, '#000088'),
+            (1, '#000000')
+        ],
+        range_color=b_factor_range
+    )
+    fig.update_traces(marker_size=4)
+
+    return fig
 
 
 def features(pdb_path: str, feature: str, yn: 'function' = yes_no) -> list:
