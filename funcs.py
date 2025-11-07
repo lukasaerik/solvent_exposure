@@ -9,6 +9,7 @@ from scipy.spatial.distance import pdist
 basedir = os.path.dirname(__file__)
 standard_residues = ['LYS', 'LEU', 'THR', 'TYR', 'PRO', 'GLU', 'ASP', 'ILE', 'ALA', 'PHE', 'ARG',
                      'VAL', 'GLN', 'GLY', 'SER', 'TRP', 'CYS', 'HIS', 'ASN', 'MET', 'SEC', 'PYL']
+'''3 letter codes for all standard amino acid residues.'''
 
 
 def yes_no(text: str) -> bool:
@@ -203,7 +204,7 @@ def preprocess(
     Args:
         pdb_path (str): The path of the file to be preprocessed (typically pdb or mmcif).
         pre_path (str): The path of the folder inside which the preprocessed pdb will be saved.
-        yn (function, optional): For obtaining user input for yes/no questions.
+        yn (function): For obtaining user input for yes/no questions.
         include (list, optional): If the first letter of an atom's 'atom_name' entry in the pdb/mmcif file is in this list, it will be included in the preprocessed file. If not, it will be removed.
         redefine_chains (bool, optional): If true, each chain will be relabeled, starting with A and going on alphabetically.
 
