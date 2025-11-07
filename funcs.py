@@ -676,7 +676,7 @@ def create_3_vectors(pdb_path: str, chain1: str | list, feature: str) -> dict[st
         (dict[str: numpy array]): A dict with three key-value pairs, one per assignment vector. 
             The key, a string, is used for future file naming and keeping track of which entries are in assignment vector 1, and therefore those that aren't in assignment vector 2. The key for the True/1 vector is tot.
     """    
-    atomic_df, filename = read_pdb_mmcif(filepath=pdb_path)
+    atomic_df, _ = read_pdb_mmcif(filepath=pdb_path)
 
     out_tot = np.ones(len(atomic_df.df['ATOM']), dtype=bool)
 
@@ -696,6 +696,35 @@ def create_3_vectors(pdb_path: str, chain1: str | list, feature: str) -> dict[st
     out2 = np.invert(out1)
 
     return {name: out1, 'not'+name: out2, 'tot': out_tot}
+
+
+def create_vectors(pdb_path: str, include: str | list, feature: str) -> dict[str, np.ndarray]:
+    """
+    Creates one assignment vector, with values True/1 for all atoms that have entries in include for feature and False/0 for all that are not.
+    This is useful for understanding the contribution to solvent exposure score from some atoms, such as those in adduct/detergent molecules.
+
+    Args:
+        pdb_path (str): The path of the pdb file for which vectors will be generated (and subsequently calculations will be run).
+        include (str or list): The entry or entries of feature to be included in the first assignment vector.
+        feature (str): The identifier used to separate the atoms of interest. Most commonly used: chain_id and residue_name.
+
+    Returns:
+        out (dict[str: numpy array]): A dict with one key-value pair. The name of what is included, as a string, is the key. The value is the assignment vector.
+    """    
+    atomic_df, _ = read_pdb_mmcif(filepath=pdb_path)
+
+    if type(include) == str:
+        return {include: np.array(atomic_df.df['ATOM'][feature].eq(include)).astype(bool)}
+    elif type(include) == list:
+        for ind, chain in enumerate(include):
+            if ind == 0:
+                temp = atomic_df.df['ATOM'][feature].eq(chain)
+                name = chain
+            else:
+                name = name + '_' + chain
+                temp = temp | atomic_df.df['ATOM'][feature].eq(chain)
+        return {name: temp}
+    raise TypeError('Incorrect type for include. Must be string or list.')
 
 
 def score_v_localres(pdb_path: str, 
@@ -836,16 +865,7 @@ def score_v_localres(pdb_path: str,
 
         names = list(np.zeros(len(localres)).astype(int).astype(str))
 
-        fileext = pdb_path.split('.',1)[1]
-        if fileext in ['pdb', 'pdb.gz', 'ent', 'ent.gz']:
-            atomic_df = PandasPdb().read_pdb(pdb_path)
-            atomic_df = atomic_df.get_model(1)
-            
-        elif fileext in ['cif', 'cif.gz']:
-            atomic_df = PandasMmcif().read_mmcif(pdb_path)
-            atomic_df = atomic_df.convert_to_pandas_pdb()
-        else:
-            raise ValueError('Wrong file format; allowed file formats are .pdb, .pdb.gz, .ent, .ent.gz, .cif, .cif.gz')
+        atomic_df, _ = read_pdb_mmcif(filepath=pdb_path)
 
         df = atomic_df.df['ATOM'].set_index(['chain_id','residue_number', 'atom_name'])
 
