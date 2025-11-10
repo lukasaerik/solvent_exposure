@@ -4,6 +4,7 @@ from biopandas.pdb import PandasPdb
 from biopandas.mmcif import PandasMmcif
 import matplotlib.pyplot as plt
 import plotly.express as px
+import plotly.graph_objects as go
 import os, math, time, psutil, warnings, plotly
 from scipy.spatial.distance import pdist
 
@@ -988,22 +989,121 @@ def score_v_localres(pdb_path: str,
             return {'fig': fig, 'ax': ax, 'sc': sc, 'names': names}
 
 
+def score_v_localres_plotly(pdb_path: str, 
+                     defattr_path: str, 
+                     only_chain: bool | list[str] = False,
+                     backboneonly: bool = False, 
+                     append_heteroatoms: 'function' = yes_no):
+    """
+    This function plots solvent exposure score per atom versus the local resolution at that atom. 
+    NOTE: this is only valuable information for gas-phase dehydration if the local resolution at that atom is obtained using a confidently assigned model, aligned properly within a cryo-EM map (and the local resolution map/mask)!
+
+    Args:
+        pdb_path (str): The path of the pdb file with solvent exposure scores (saved as b-factor entries).
+        defattr_path (str): The path of the defattr file with local resolution values. These are generated in ChimeraX with these commands, where #1 is the aligned atomic model and #3 is the local resolution map:
+            measure mapvalues #3 atoms #1 attribute locres
+            save 'XXXX\\pdbs\\out\\XXXX.defattr' attrName locres models #1
+        only_chain (bool or list[str], optional): If False, as default, all atoms (for which there are both solvent exposure scores and local resolution values) are plotted. 
+            If a list of strings is provided, only atoms with chain_id that are in the list are plotted. This is useful for proteins with non-crystallographic symmetry, as only one asymmetric subunit needs to be plotted.
+        called_by_GUI (bool, optional): If False, as default, the function plots using matplotlib. When True, the function does not actually plot, but returns values to be used elsewhere for plotting.
+        backboneonly: (bool, optional): If False, as default, all atoms (for which there are both solvent exposure scores and local resolution values) are plotted.
+            If True, only backbone atoms are plotted.
+        inverse (bool, optional): If True, as default, the y-values are plotted as 1 / (Local Resolution). If false, they are plotted as Local Resolution.
+        interactive (bool, optional): If False, as default, a static plot is shown. If True, the plot is interactive, with annotations popping up over points where the mouse is hovering. 
+            This can be rather inconsistent to get working, but is currently working consistently in the GUI, which I recommend using for interactive plotting purposes.
+
+    Returns:
+        (dict): If called_by_GUI, a dict is returned containing key (str)-value pairs of:
+            - 'x': numpy array of x values,
+            - 'y': numpy array of y values,
+            - 'names': list of point names (list[str]),
+            - 'inverse': inverse (bool),
+            - 'xlabel': x-axis label for plotting (str),
+            - 'ylabel': y-axis label for plotting (str).
+            If not called_by_GUI, a dict is returned containing key (str)-value pairs of:
+            - 'fig': plot fig (Figure), 
+            - 'ax': plot ax (Axes), 
+            - 'sc': scatterplot sc (PathCollection), 
+            - 'names': list of point names (list[str]).
+    """
+    localres = pd.read_csv(defattr_path, sep = '\t', header = 3, usecols = [1,2], names = ['atom', 'localres']).set_index('atom')
+    localres['localres'] = 1.0/localres['localres']
+
+    # out = np.zeros((len(localres), 2))
+    # names = list(np.zeros(len(localres)).astype(int).astype(str))
+
+    atomic_df, _ = read_pdb_mmcif(filepath=pdb_path, append_heteroatoms=append_heteroatoms)
+
+    atomic_df.df['ATOM']['index'] = '/'+atomic_df.df["ATOM"]["chain_id"]+':'+atomic_df.df["ATOM"]["residue_number"].astype(str)+'@'+atomic_df.df["ATOM"]["atom_name"]
+
+    data = pd.concat([atomic_df.df['ATOM'].set_index('index'), localres], axis=1).drop(['charge', 'blank_1', 'alt_loc', 'blank_2', 'blank_3', 'insertion', 'blank_4', 'segment_id', 'element_symbol'], axis=1).dropna()
+
+    if only_chain:
+        data = data[(data['chain_id'].isin(only_chain))]
+
+    if backboneonly:
+        data = data[(data['atom_name'].isin(['C', 'N', 'O', 'CA']))]
+
+    fig = px.scatter(data, 
+                     x='b_factor', y='localres',
+                     hover_data={'b_factor':False, 
+                                 'localres':False, 
+                                 'Atom':data.index,
+                                 'Score':data['b_factor'],
+                                 'Local Res':data['localres']}
+                     )
+
+    fig.update_traces(marker_line_width=0, marker=dict(opacity=1.0))
+    
+    fig.update_xaxes(title_text='Solvent Exposure Score (Arbitrary Units)')
+    
+    fig.update_yaxes(title_text='Local Resolution at Atom in Model (1/Å)')
+
+    fig.update_layout(
+        yaxis = dict(
+            tickmode = 'array',
+            tickvals = [0.5, 0.33, 0.25, 0.2, 0.166666],
+            ticktext = ['1/2', '1/3', '1/4', '1/5', '1/6']
+        )
+    )
+
+    return fig
+
+
 def visualize(pdb_path: str,
               b_factor_range: list = [0, 20],
               append_heteroatoms: 'function' = yes_no) -> 'plotly.graph_objs._figure.Figure':
     """
-    Build and return a Plotly Figure for the given pdb_path.
-    DOES NOT call fig.show() so GUI can embed the result.
+    Builds and returns a Plotly Figure for the given pdb_path.
+
+    Args:
+        pdb_path (str): The path of the pdb file to be visualized.
+        b_factor_range (list, optional): The min and max value of the colorscale. 
+            Default 0 to 20, as standard for solvent exposure scores using score = d**-2 with cutoff of 5 nm.
+        append_heteroatoms (function, optional): If there are heteroatoms in the read file, the output of this function decides if any heteroatoms are added to the chain atoms for later use. If False, any are removed.
+
+    Returns:
+        fig (Figure): Plotly figure of atoms.
     """
-    # defensive: validate pdb_path
-    if not pdb_path:
-        raise ValueError("No pdb_path provided to visualize()")
-    # optional: allow absolute/relative paths; don't hardcode a file
     atomic_df, _ = read_pdb_mmcif(filepath=pdb_path, append_heteroatoms=append_heteroatoms)
+
+    backbone_atoms = ['C', 'N', 'O', 'CA']
+    atomic_df.df['ATOM']["marker_size"] = atomic_df.df["ATOM"]["atom_name"].apply(
+        lambda x: 4 if x in backbone_atoms else 2
+    )
 
     fig = px.scatter_3d(
         atomic_df.df["ATOM"],
         x='x_coord', y='y_coord', z='z_coord',
+        hover_data={'x_coord':False, 
+                    'y_coord':False, 
+                    'z_coord':False, 
+                    'chain':atomic_df.df["ATOM"]['chain_id'],
+                    'Residue':atomic_df.df["ATOM"]['residue_number'],
+                    'Atom':atomic_df.df["ATOM"]['atom_name'],
+                    'marker_size': False,
+                    'Score':atomic_df.df["ATOM"]['b_factor'],
+                    'b_factor':False},
         color='b_factor',
         color_continuous_scale=[
             (0, '#ffffff'),
@@ -1012,9 +1112,40 @@ def visualize(pdb_path: str,
             (0.75, '#000088'),
             (1, '#000000')
         ],
-        range_color=b_factor_range
+        range_color=b_factor_range,
+        size='marker_size'
     )
-    fig.update_traces(marker_size=4)
+
+    fig.update_traces(marker_line_width=0, marker=dict(opacity=1.0))
+
+    fig.update_layout(
+        scene=dict(
+            xaxis=dict(
+                showgrid=False,
+                showticklabels=False,
+                title='',
+                visible=False,
+                backgroundcolor='rgba(0,0,0,0)'
+            ),
+            yaxis=dict(
+                showgrid=False,
+                showticklabels=False,
+                title='',
+                visible=False,
+                backgroundcolor='rgba(0,0,0,0)'
+            ),
+            zaxis=dict(
+                showgrid=False,
+                showticklabels=False,
+                title='',
+                visible=False,
+                backgroundcolor='rgba(0,0,0,0)'
+            ),
+            bgcolor='rgba(0,0,0,0)'  # removes scene background
+        ),
+        paper_bgcolor='rgba(0,0,0,0)',  # removes outer background
+        plot_bgcolor='rgba(0,0,0,0)',   # removes plot background
+    )
 
     return fig
 
@@ -1098,4 +1229,5 @@ def max_n_for_full_matrix(fraction_of_avail: float = 0.5, dtype: type = np.float
     max_bytes = int(avail * fraction_of_avail)
     # n^2 * bytes_per_element <= max_bytes  ->  n <= sqrt(max_bytes/bytes_per_element)
     return int(math.floor(math.sqrt(max_bytes / bytes_per_element)))
+
 

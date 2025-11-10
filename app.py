@@ -1,24 +1,29 @@
-import sys, os, time, mplcursors, traceback
+import sys, os, time, mplcursors, traceback, tempfile
 import numpy as np
 from pathlib import Path
+from uuid import uuid4
 
 flags = [
     "--disable-logging",
     "--log-level=3",
     "--disable-software-rasterizer",
     "--disable-gpu",               # try remove this if you want to allow GPU; keep if crashes
-    "--single-process",
+    "--disable-gpu-compositing",
+    "--disable-gpu-sandbox",
+    "--disable-accelerated-2d-canvas",
+    "--in-process-gpu",              # keep GPU work in main process; prevents thread teardown races
+    "--single-process",              # run Chromium entirely in one process (safe for small apps)
     "--no-sandbox",
+    "--disable-dev-shm-usage",
     "--ignore-gpu-blacklist",
     "--enable-webgl",
     "--use-gl=angle",              # use ANGLE on Windows (Direct3D)
-    # "--use-gl=desktop",          # alternative: try desktop GL
-    # "--use-gl=swiftshader",      # alternative: use SwiftShader software GL (if available)
-    # "--enable-unsafe-webgpu",    # optional experimental
 ]
-os.environ["QT_LOGGING_RULES"] = "qt.qpa.*=false;qt.webenginecontext.*=false"
+
 os.environ["QTWEBENGINE_CHROMIUM_FLAGS"] = " ".join(flags)
 os.environ["QT_QUICK_BACKEND"] = "software"
+os.environ["QT_OPENGL"] = "software"
+os.environ["QT_LOGGING_RULES"] = "qt.qpa.*=false;qt.webenginecontext.*=false"
 
 from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.backends.backend_qtagg import NavigationToolbar2QT as NavigationToolbar
@@ -32,7 +37,12 @@ except Exception:
     QWebEngineView = None
     WEBENGINE_AVAILABLE = False
 
-from PyQt6.QtCore import Qt, QObject, QThread, pyqtSignal, QEventLoop, QEvent, QUrl
+try:
+    from PyQt6.QtWebEngineCore import QWebEngineProfile
+except Exception:
+    QWebEngineProfile = None
+
+from PyQt6.QtCore import Qt, QObject, QThread, pyqtSignal, QEventLoop, QEvent, QUrl, QTimer
 from PyQt6.QtGui import QAction, QPalette, QStandardItem, QFontMetrics, QKeySequence
 from PyQt6.QtWidgets import (
     QApplication,
@@ -54,9 +64,56 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from funcs import preprocess, create_3_vectors, exposure, score_v_localres, features, average_score, visualize, standard_residues
+from funcs import preprocess, create_3_vectors, exposure, score_v_localres, features, average_score, visualize, score_v_localres_plotly, standard_residues
 
 basedir = os.path.dirname(__file__)
+
+def _cleanup_webview(view):
+    """Best-effort cleanup of a QWebEngineView / page."""
+    if view is None:
+        return
+
+    try:
+        # stop any loading
+        view.stop()
+    except Exception:
+        pass
+
+    try:
+        # try to navigate to about:blank to tear down renderer work
+        view.page().setUrl(QUrl("about:blank"))
+    except Exception:
+        pass
+
+    try:
+        # delete page first
+        page = view.page()
+        if page is not None:
+            page.deleteLater()
+    except Exception:
+        pass
+
+    try:
+        view.deleteLater()
+    except Exception:
+        pass
+
+    # clear profile cache (best-effort)
+    try:
+        if QWebEngineProfile is not None:
+            QWebEngineProfile.defaultProfile().clearHttpCache()
+    except Exception:
+        pass
+
+    # give Qt a moment to process deletes
+    try:
+        app = QApplication.instance()
+        if app is not None:
+            app.processEvents()
+            # tiny pause to let background threads stop gracefully
+            time.sleep(0.05)
+    except Exception:
+        pass
 
 
 class CheckableComboBox(QComboBox):
@@ -495,8 +552,9 @@ class ScriptWorker(QObject):
             pdb_path = settings.get('pdb_path')
             defattr_path = settings.get('defattr_path')
             only_chain = settings.get('only_chain')
+            only_backbone = settings.get('only_backbone')
 
-            result = score_v_localres(pdb_path=pdb_path, defattr_path=defattr_path, only_chain=only_chain, called_by_GUI=True, inverse=True)
+            result = score_v_localres(pdb_path=pdb_path, defattr_path=defattr_path, only_chain=only_chain, called_by_GUI=True, backboneonly=only_backbone, inverse=True)
             self.finished.emit(result)
         except Exception as e:
             self.error.emit(str(e))
@@ -554,7 +612,7 @@ class MainWindow(QMainWindow):
         # Simple Tab
         ###
         simple = QWidget()
-        simple_form = QFormLayout()
+        simple_form = QVBoxLayout()
 
         self.current_simple_settings = {
             'pdb_path': os.path.join(basedir, 'pdbs', 'in', '1u7g.pdb'),
@@ -573,9 +631,10 @@ class MainWindow(QMainWindow):
         self.file_edit.setText(self.current_simple_settings.get('pdb_path', ''))
         self.file_browse = QPushButton('Browse...')
         self.file_browse.clicked.connect(self._browse_file)
+        file_row.addWidget(QLabel('PDB File:'))
         file_row.addWidget(self.file_edit)
         file_row.addWidget(self.file_browse)
-        simple_form.addRow('PDB File:', file_row)
+        simple_form.addLayout(file_row)
 
         # Folder (preproccessed) selection
         folder_pre_row = QHBoxLayout()
@@ -583,9 +642,10 @@ class MainWindow(QMainWindow):
         self.folder_pre_edit.setText(self.current_simple_settings.get('folder_pre_path', ''))
         self.folder_pre_browse = QPushButton('Browse...')
         self.folder_pre_browse.clicked.connect(self._browse_pre_folder)
+        folder_pre_row.addWidget(QLabel('Preprocessed Folder:'))
         folder_pre_row.addWidget(self.folder_pre_edit)
         folder_pre_row.addWidget(self.folder_pre_browse)
-        simple_form.addRow('Preprocessed Folder:', folder_pre_row)
+        simple_form.addLayout(folder_pre_row)
 
         # Folder (out) selection
         folder_out_row = QHBoxLayout()
@@ -593,9 +653,10 @@ class MainWindow(QMainWindow):
         self.folder_out_edit.setText(self.current_simple_settings.get('folder_out_path', ''))
         self.folder_out_browse = QPushButton('Browse...')
         self.folder_out_browse.clicked.connect(self._browse_out_folder)
+        folder_out_row.addWidget(QLabel('Output Folder:'))
         folder_out_row.addWidget(self.folder_out_edit)
         folder_out_row.addWidget(self.folder_out_browse)
-        simple_form.addRow('Output Folder:', folder_out_row)
+        simple_form.addLayout(folder_out_row)
 
         # Average checkbox
         simple_average_row = QHBoxLayout()
@@ -608,18 +669,18 @@ class MainWindow(QMainWindow):
         self.simple_backbone_checkbox.setChecked(self.simple_backbone)
         self.simple_backbone_checkbox.stateChanged.connect(self._on_simple_backbone_toggled)        
         simple_average_row.addWidget(self.simple_backbone_checkbox)
-        simple_form.addRow('', simple_average_row)
+        simple_form.addLayout(simple_average_row)
 
         # Output text box
         self.simple_output = QTextEdit()
         self.simple_output.setReadOnly(True)
         self.simple_output.setPlaceholderText('Results will appear here...')
-        simple_form.addRow('', self.simple_output)
+        simple_form.addWidget(self.simple_output)
 
         # Bottom: Run Button
         self.run_simple = QPushButton('Calculate')
         self.run_simple.clicked.connect(self.on_run_simple_clicked)
-        simple_form.addRow('', self.run_simple)
+        simple_form.addWidget(self.run_simple)
 
         # Add to tab
         simple.setLayout(simple_form)
@@ -632,7 +693,7 @@ class MainWindow(QMainWindow):
         self.adduct_average = True
         self.adduct_backbone = False
         adduct = QWidget()
-        adduct_form = QFormLayout()
+        adduct_form = QVBoxLayout()
 
         self.current_adduct_settings = {
             'pdb_path': os.path.join(basedir, 'pdbs', 'in', '1u7g.pdb'),
@@ -651,9 +712,10 @@ class MainWindow(QMainWindow):
         self.adduct_file_edit.setText(self.current_adduct_settings.get('pdb_path', ''))
         self.adduct_file_browse = QPushButton('Browse...')
         self.adduct_file_browse.clicked.connect(self._browse_adduct_file)
+        adduct_file_row.addWidget(QLabel('PDB File:'))
         adduct_file_row.addWidget(self.adduct_file_edit)
         adduct_file_row.addWidget(self.adduct_file_browse)
-        adduct_form.addRow('PDB File:', adduct_file_row)
+        adduct_form.addLayout(adduct_file_row)
 
         # Folder (preprocessed) selection
         adduct_folder_pre_row = QHBoxLayout()
@@ -661,27 +723,34 @@ class MainWindow(QMainWindow):
         self.adduct_folder_pre_edit.setText(self.current_adduct_settings.get('folder_pre_path', ''))
         self.adduct_folder_pre_browse = QPushButton('Browse...')
         self.adduct_folder_pre_browse.clicked.connect(self._browse_adduct_pre_folder)
+        adduct_folder_pre_row.addWidget(QLabel('Preprocessed Folder:'))
         adduct_folder_pre_row.addWidget(self.adduct_folder_pre_edit)
         adduct_folder_pre_row.addWidget(self.adduct_folder_pre_browse)
-        adduct_form.addRow('Preprocessed Folder:', adduct_folder_pre_row)
+        adduct_form.addLayout(adduct_folder_pre_row)
 
         # Feature selection
+        adduct_feature_row = QHBoxLayout()
         self.adduct_feature = QComboBox()
         self.adduct_feature.addItems(['chain_id', 'residue_name'])
         op = self.current_adduct_settings.get('feature', 'chain_id')
         idx = self.adduct_feature.findText(op)
         if idx >= 0:
             self.adduct_feature.setCurrentIndex(idx)
-        adduct_form.addRow('Feature', self.adduct_feature)
+        adduct_feature_row.addWidget(QLabel('Feature:'))
+        adduct_feature_row.addWidget(self.adduct_feature)
+        adduct_form.addLayout(adduct_feature_row)
 
         # Preprocess/feature Run Button
         self.run_adduct_pre = QPushButton('Preprocess')
         self.run_adduct_pre.clicked.connect(self.on_run_adduct_pre_clicked)
-        adduct_form.addRow('', self.run_adduct_pre)
+        adduct_form.addWidget(self.run_adduct_pre)
 
         # Combo selector
+        combo_row = QHBoxLayout()
         self.combo = CheckableComboBox()
-        adduct_form.addRow('Combo', self.combo)
+        combo_row.addWidget(QLabel('Combo:'))
+        combo_row.addWidget(self.combo)
+        adduct_form.addLayout(combo_row)
 
         # Folder (out) selection
         adduct_folder_out_row = QHBoxLayout()
@@ -689,9 +758,10 @@ class MainWindow(QMainWindow):
         self.adduct_folder_out_edit.setText(self.current_adduct_settings.get('folder_out_path', ''))
         self.adduct_folder_out_browse = QPushButton('Browse...')
         self.adduct_folder_out_browse.clicked.connect(self._browse_adduct_out_folder)
+        adduct_folder_out_row.addWidget(QLabel('Output Folder:'))
         adduct_folder_out_row.addWidget(self.adduct_folder_out_edit)
         adduct_folder_out_row.addWidget(self.adduct_folder_out_browse)
-        adduct_form.addRow('Output Folder:', adduct_folder_out_row)
+        adduct_form.addLayout(adduct_folder_out_row)
 
         # Average checkbox
         adduct_average_row = QHBoxLayout()
@@ -703,18 +773,18 @@ class MainWindow(QMainWindow):
         self.adduct_backbone_checkbox.setChecked(self.adduct_backbone)
         self.adduct_backbone_checkbox.stateChanged.connect(self._on_adduct_backbone_toggled)        
         adduct_average_row.addWidget(self.adduct_backbone_checkbox)
-        adduct_form.addRow('', adduct_average_row)
+        adduct_form.addLayout(adduct_average_row)
 
         # Bottom: Run Button
         self.run_adduct_out = QPushButton('Calculate')
         self.run_adduct_out.clicked.connect(self.on_run_adduct_out_clicked)
-        adduct_form.addRow('', self.run_adduct_out)
+        adduct_form.addWidget(self.run_adduct_out)
 
         # Output text box
         self.adduct_output = QTextEdit()
         self.adduct_output.setReadOnly(True)
         self.adduct_output.setPlaceholderText('Results will appear here...')
-        adduct_form.addRow('', self.adduct_output)
+        adduct_form.addWidget(self.adduct_output)
 
         adduct.setLayout(adduct_form)
         tabs.addTab(adduct, 'With Adduct')
@@ -744,10 +814,8 @@ class MainWindow(QMainWindow):
 
         # Render / Open controls
         render_h = QHBoxLayout()
-        self.visuals_render_btn = QPushButton('Render (embed)')
-        # self.visuals_openbtn = QPushButton('Open in Browser')
+        self.visuals_render_btn = QPushButton('Render')
         render_h.addWidget(self.visuals_render_btn)
-        # render_h.addWidget(self.visuals_openbtn)
 
         visuals_layout.addLayout(controls_h)
         visuals_layout.addLayout(render_h)
@@ -767,20 +835,21 @@ class MainWindow(QMainWindow):
         tabs.addTab(visuals_widget, 'Protein Visualisation')
 
         self.visuals_render_btn.clicked.connect(self._render_embed)
-        # self.visuals_openbtn.clicked.connect(self._open_in_browser)
 
 
         ###
         # Plotting Tab
         ###
         self.only_chain = False
+        self.only_backbone = False
         plot = QWidget()
-        plot_form = QFormLayout()
+        plot_form = QVBoxLayout()
 
         self.current_plot_settings = {
             'pdb_path': os.path.join(basedir, 'pdbs', 'out', '3jcz_2c50_26p5.pdb'),
             'defattr_path': os.path.join(basedir, 'pdbs', 'out', 'defattrs', 'gdh_J123.defattr'),
             'only_chain': False,
+            'only_backbone': False,
         }
 
         plot_pdb_row = QHBoxLayout()
@@ -788,18 +857,20 @@ class MainWindow(QMainWindow):
         self.plot_pdb_edit.setText(self.current_plot_settings.get('pdb_path', ''))
         self.plot_pdb_browse = QPushButton('Browse...')
         self.plot_pdb_browse.clicked.connect(self._browse_plot_file)
+        plot_pdb_row.addWidget(QLabel('PDB File:'))
         plot_pdb_row.addWidget(self.plot_pdb_edit)
         plot_pdb_row.addWidget(self.plot_pdb_browse)
-        plot_form.addRow('PDB File:', plot_pdb_row)
+        plot_form.addLayout(plot_pdb_row)
 
         plot_defattr_row = QHBoxLayout()
         self.plot_defattr_edit = QLineEdit()
         self.plot_defattr_edit.setText(self.current_plot_settings.get('defattr_path', ''))
         self.plot_defattr_browse = QPushButton('Browse...')
         self.plot_defattr_browse.clicked.connect(self._browse_defattr_file)
+        plot_defattr_row.addWidget(QLabel('defattr File:'))
         plot_defattr_row.addWidget(self.plot_defattr_edit)
         plot_defattr_row.addWidget(self.plot_defattr_browse)
-        plot_form.addRow('defattr File:', plot_defattr_row)
+        plot_form.addLayout(plot_defattr_row)
 
         # Only chain(s)?
         only_chains_h = QHBoxLayout()
@@ -810,21 +881,33 @@ class MainWindow(QMainWindow):
         self.only_chain_combo = CheckableComboBox()
         self.only_chain_combo.addItems(features(pdb_path=self.plot_pdb_edit.text(), feature='chain_id'))
         only_chains_h.addWidget(self.only_chain_combo)
-        plot_form.addRow('', only_chains_h)
+        self.only_backbone_checkbox = QCheckBox('Only Backbone Atoms?')
+        self.only_backbone_checkbox.setChecked(self.only_backbone)
+        self.only_backbone_checkbox.stateChanged.connect(self._on_only_backbones_toggled)
+        only_chains_h.addWidget(self.only_backbone_checkbox)
+
+        plot_form.addLayout(only_chains_h)
 
         # Plot button
         self.run_plot = QPushButton('Plot')
-        self.run_plot.clicked.connect(self.on_run_plot_clicked)
-        plot_form.addRow('', self.run_plot)
+        plot_form.addWidget(self.run_plot)
 
-        self.sc = MatplotlibWidget(self)
-        plot_form.addWidget(self.sc)
+        if WEBENGINE_AVAILABLE:
+            self.plot_view = QWebEngineView()
+            self.plot_view.setMinimumHeight(480)
+            plot_form.addWidget(self.plot_view)
+            self.run_plot.clicked.connect(self._render_plot_embed)
 
-        # Output text box
-        self.plot_output = QTextEdit()
-        self.plot_output.setReadOnly(True)
-        self.plot_output.setPlaceholderText('Results will appear here...')
-        plot_form.addRow('', self.plot_output)
+        else:
+            self.sc = MatplotlibWidget(self)
+            self.run_plot.clicked.connect(self.on_run_plot_clicked)
+            plot_form.addWidget(self.sc)
+
+            # Output text box
+            self.plot_output = QTextEdit()
+            self.plot_output.setReadOnly(True)
+            self.plot_output.setPlaceholderText('Results will appear here...')
+            plot_form.addWidget(self.plot_output)
 
         plot.setLayout(plot_form)
         tabs.addTab(plot, 'Score vs Resolution')
@@ -876,9 +959,9 @@ class MainWindow(QMainWindow):
         self.run_plot.setEnabled(True)
         for i in result:
             self.simple_output.append(f'File {i[0]} saved. \n Min: {i[1]:.2f} \n Max: {i[2]:.2f}')
-        print(f'{result[0][0]}')
+        # print(f'{result[0][0]}')
         self.visuals_pdb_edit.setText(f'{result[0][0]}')
-        self._render_embed
+        self._render_embed()
 
     def on_worker_simple_error(self, err_str):
         self.run_simple.setEnabled(True)
@@ -1016,6 +1099,10 @@ class MainWindow(QMainWindow):
         self.only_chain = bool(state)
         self.current_plot_settings['only_chain'] = self.only_chain
 
+    def _on_only_backbones_toggled(self, state):
+        self.only_backbone = bool(state)
+        self.current_plot_settings['only_backbone'] = self.only_backbone
+
     def on_run_plot_clicked(self):
         # gather values
         updated_settings = self.get_plot_settings()
@@ -1129,7 +1216,6 @@ class MainWindow(QMainWindow):
         if fname:
             self.visuals_pdb_edit.setText(fname)
 
-    # --- behaviour
     def _render_embed(self):
         pdb_path = self.visuals_pdb_edit.text().strip()
         # print("[DEBUG] Render button clicked. pdb_path:", pdb_path, "python:", sys.executable)
@@ -1168,13 +1254,61 @@ class MainWindow(QMainWindow):
             # print("[ERROR] Exception while embedding HTML:\n", tb)
             QMessageBox.critical(self, "Embed error", f"Could not embed figure:\n{e}\n\nSee console for traceback.")
 
-    def _open_in_browser(self):
-        pdb_path = self.visuals_pdb_edit.text().strip()
+    def _render_plot_embed(self):
+        updated_settings = self.get_plot_settings()
+        for k in updated_settings:
+            self.current_plot_settings[k] = updated_settings.get(k)
+
+        pdb_path = self.current_plot_settings.get('pdb_path')
+        defattr_path = self.current_plot_settings.get('defattr_path')
+        only_chain = self.current_plot_settings.get('only_chain')
+        only_backbone = self.current_plot_settings.get('only_backbone')
+
+        if not pdb_path:
+            QMessageBox.warning(self, "No file", "Please select a PDB or mmCIF file first.")
+            return
+        if not Path(pdb_path).exists():
+            QMessageBox.critical(self, "File not found", f"Could not find file:\n{pdb_path}")
+            return
+
+        if not defattr_path:
+            QMessageBox.warning(self, "No file", "Please select a defattr file first.")
+            return
+        if not Path(defattr_path).exists():
+            QMessageBox.critical(self, "File not found", f"Could not find file:\n{defattr_path}")
+            return
+        
         try:
-            fig = visualize(pdb_path=pdb_path)
-            fig.show()  # will open in browser / external viewer
+            fig = score_v_localres_plotly(pdb_path=pdb_path, defattr_path=defattr_path, only_chain=only_chain, backboneonly=only_backbone)
+            if fig is None:
+                raise RuntimeError("score_v_localres_plotly() returned None")
         except Exception as e:
-            QMessageBox.critical(self, "Error", f"Could not build or show figure:\n{e}")
+            tb = traceback.format_exc()
+            # print("[ERROR] Exception while building figure:\n", tb)
+            QMessageBox.critical(self, "Visualization error", f"Could not build figure:\n{e}\n\nSee console for traceback.")
+            return
+
+        if not WEBENGINE_AVAILABLE:
+            QMessageBox.information(self, "No WebEngine", "Qt WebEngine not available; use 'Open in Browser' instead.")
+            return
+
+        try:
+            # Use full_html=True so we deliver a complete HTML doc to the QWebEngineView.
+            html = fig.to_html(include_plotlyjs='inline', full_html=True)
+            self._show_plot_html_in_file(html)
+        except Exception as e:
+            tb = traceback.format_exc()
+            print("[ERROR] Exception while embedding HTML:\n", tb)
+            QMessageBox.critical(self, "Embed error", f"Could not embed figure:\n{e}\n\nSee console for traceback.")
+
+    def _show_plot_html_in_file(self, html: str):
+        tmpdir = tempfile.gettempdir()
+        fname = f"plot_{uuid4().hex}.html"
+        path = os.path.join(tmpdir, fname)
+        with open(path, "w", encoding="utf-8") as fh:
+            fh.write(html)
+        # load as file URL so a fresh document is created
+        self.plot_view.setUrl(QUrl.fromLocalFile(path))
 
     def get_simple_settings(self):
         # Return a dict of settings
@@ -1203,11 +1337,13 @@ class MainWindow(QMainWindow):
             'pdb_path': self.plot_pdb_edit.text(),
             'defattr_path': self.plot_defattr_edit.text(),
             'only_chain': self.only_chain_combo.currentData(),
+            'only_backbone': self.only_backbone,
         }
         else:
             return {
             'pdb_path': self.plot_pdb_edit.text(),
             'defattr_path': self.plot_defattr_edit.text(),
+            'only_backbone': self.only_backbone,
         }
 
 app = QApplication(sys.argv)
@@ -1215,4 +1351,14 @@ app = QApplication(sys.argv)
 window = MainWindow()
 window.show()
 
-app.exec()
+exit_code = 0
+try:
+    exit_code = app.exec()
+finally:
+    try:
+        if window and hasattr(window, "visuals_view"):
+            _cleanup_webview(window.visuals_view)
+    except Exception:
+        pass
+    app.processEvents()
+    sys.exit(exit_code)
