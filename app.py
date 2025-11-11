@@ -25,10 +25,14 @@ os.environ["QT_QUICK_BACKEND"] = "software"
 os.environ["QT_OPENGL"] = "software"
 os.environ["QT_LOGGING_RULES"] = "qt.qpa.*=false;qt.webenginecontext.*=false"
 
-from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
-from matplotlib.backends.backend_qtagg import NavigationToolbar2QT as NavigationToolbar
-from matplotlib.figure import Figure
-import matplotlib.ticker as ticker
+try:
+    from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
+    from matplotlib.backends.backend_qtagg import NavigationToolbar2QT as NavigationToolbar
+    from matplotlib.figure import Figure
+    import matplotlib.ticker as ticker
+    MATPLOTLIB_AVAILABLE = True
+except Exception:
+    MATPLOTLIB_AVAILABLE = False
 
 try:
     from PyQt6.QtWebEngineWidgets import QWebEngineView
@@ -791,12 +795,6 @@ class MainWindow(QMainWindow):
 
 
         ###
-        # Manual Tab
-        ###
-        tabs.addTab(QLabel('not yet implemented'), 'Manual')
-
-
-        ###
         # Visualisation Tab
         ###
         visuals_widget = QWidget()
@@ -898,7 +896,10 @@ class MainWindow(QMainWindow):
             plot_form.addWidget(self.plot_view)
             self.run_plot.clicked.connect(self._render_plot_embed)
 
-        else:
+            plot.setLayout(plot_form)
+            tabs.addTab(plot, 'Score vs Resolution')
+
+        elif MATPLOTLIB_AVAILABLE:
             self.sc = MatplotlibWidget(self)
             self.run_plot.clicked.connect(self.on_run_plot_clicked)
             plot_form.addWidget(self.sc)
@@ -909,8 +910,16 @@ class MainWindow(QMainWindow):
             self.plot_output.setPlaceholderText('Results will appear here...')
             plot_form.addWidget(self.plot_output)
 
-        plot.setLayout(plot_form)
-        tabs.addTab(plot, 'Score vs Resolution')
+            plot.setLayout(plot_form)
+            tabs.addTab(plot, 'Score vs Resolution')
+        else:
+            tabs.addTab(QLabel('Cannot Plot. QtWebEngine and Matplotlib are not installed'), 'Score vs Resolution')
+
+
+        ###
+        # Manual Tab
+        ###
+        tabs.addTab(QLabel('not yet implemented'), 'Manual')
 
         self.setCentralWidget(tabs)
 
@@ -1242,12 +1251,8 @@ class MainWindow(QMainWindow):
 
         try:
             # Use full_html=True so we deliver a complete HTML doc to the QWebEngineView.
-            html = fig.to_html(include_plotlyjs='cdn', full_html=True)
-            # print(f"[DEBUG] fig.to_html() produced HTML length: {len(html)}")
-            # Provide explicit base QUrl which sometimes helps resources resolve correctly.
-            self.visuals_view.setHtml(html, QUrl("about:blank"))
-            # Force a reload if nothing shows up immediately (harmless).
-            self.visuals_view.reload()
+            html = fig.to_html(include_plotlyjs='inline', full_html=True)
+            self._show_html_in_file(html)
             # print("[DEBUG] setHtml called and reload requested.")
         except Exception as e:
             tb = traceback.format_exc()
@@ -1300,6 +1305,15 @@ class MainWindow(QMainWindow):
             tb = traceback.format_exc()
             print("[ERROR] Exception while embedding HTML:\n", tb)
             QMessageBox.critical(self, "Embed error", f"Could not embed figure:\n{e}\n\nSee console for traceback.")
+
+    def _show_html_in_file(self, html: str):
+        tmpdir = tempfile.gettempdir()
+        fname = f"plot_{uuid4().hex}.html"
+        path = os.path.join(tmpdir, fname)
+        with open(path, "w", encoding="utf-8") as fh:
+            fh.write(html)
+        # load as file URL so a fresh document is created
+        self.visuals_view.setUrl(QUrl.fromLocalFile(path))
 
     def _show_plot_html_in_file(self, html: str):
         tmpdir = tempfile.gettempdir()
