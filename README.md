@@ -1,6 +1,6 @@
 # Solvent Exposure
 
-Simple tools to handle pdbs and calculate solvent exposure scores
+Simple tools to handle pdbs/mmcifs and calculate solvent exposure scores
 
 ## Installation
 ### In python
@@ -51,11 +51,15 @@ Running ```app.py``` generates a GUI. This is the easiest way to use these funct
 
 ```solvent_exposure.ipynb``` is a notebook version that shows how to run standard calculations as intended, and a couple advanced options as examples.
 
-As standard, raw (input) pdb files can be placed into ```/pdbs/in/``` and calculated defattr files can be placed into ```/pdbs/out/defattr/```. Preprocessed files are automatically saved to ```/pdbs/preprocessed/``` and files where solvent exposure has been calculated are saved to ```/pdbs/out/```
+```cif_handling.py``` contains the background functions necessary to read, write, and manipulate mmCIF (.cif) files.
+
+As standard, raw (input) pdb/cif files can be placed into ```/pdbs/in/``` and calculated defattr files can be placed into ```/pdbs/out/defattr/```. Preprocessed files are automatically saved to ```/pdbs/preprocessed/``` and files where solvent exposure has been calculated are saved to ```/pdbs/out/```
 
 ## Visualising solvent exposure
 
-I use ChimeraX to visualise proteins, and will show example commands below. This should be doable, in principle, in any standard protein visualisation app. For ease of visualisation in standard apps, these functions save pdb files where the b-factor column is used to store solvent exposure scores.
+Simple visualisation of the proteins, colored by solvent exposure score, is available in the GUI or using Plotly.
+
+For more options, I use ChimeraX and will show example commands below. This should be doable, in principle, in any standard protein visualisation app. For ease of visualisation in standard apps, these functions save pdb files where the b-factor column is used to store solvent exposure scores.
 
 #### To color proteins with standard coloring (assuming the model is #1):
 ```
@@ -79,5 +83,3 @@ save 'XXXX\pdbs\out\XXXX.defattr' attrName locres models #1
 ```
 
 (assuming model is #1, map is #2; useful for alignment, and local resolution map is #3)
-
-I would love to integrate visualisation at some point in the GUI, when time allows.

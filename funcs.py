@@ -8,6 +8,8 @@ import plotly.graph_objects as go
 import os, math, time, psutil, warnings, plotly
 from scipy.spatial.distance import pdist
 
+from cif_handling import read_raw_cif, split_header_blocks_footer, parse_loops_from_block_with_offsets, loop_to_dataframe, infer_start_columns, infer_decimal_places, write_loop_from_df_aligned, replace_loop_in_block_text, write_cif_from_parts, canonical_atom_site_order, reorder_df_to_canonical
+
 basedir = os.path.dirname(__file__)
 standard_residues = ['LYS', 'LEU', 'THR', 'TYR', 'PRO', 'GLU', 'ASP', 'ILE', 'ALA', 'PHE', 'ARG',
                      'VAL', 'GLN', 'GLY', 'SER', 'TRP', 'CYS', 'HIS', 'ASN', 'MET', 'SEC', 'PYL']
@@ -33,6 +35,87 @@ def yes_no(text: str) -> bool:
     yes_no(text=text)
     
 
+def cif_to_df(path:str):
+    raw = read_raw_cif(path=path)
+    header, blocks, footer = split_header_blocks_footer(raw)
+    block_name = next(iter(blocks.keys()))
+    block_text = blocks[block_name]
+    loops = parse_loops_from_block_with_offsets(block_text)
+
+    # 2) find atom_site loop
+    atom_loop = None
+    for L in loops:
+        if any('_atom_site.' in t for t in L['tags']):
+            atom_loop = L
+            break
+    assert atom_loop is not None
+
+    # 3) convert to df (this keeps integers as Int64, floats as Float64)
+    df = loop_to_dataframe(atom_loop)
+
+    canonical_order = canonical_atom_site_order()
+
+    df_canon = reorder_df_to_canonical(df, canonical_order)
+
+    # 4) infer start columns and decimals (optional, writer will infer for you if you skip)
+    start_cols = infer_start_columns(atom_loop)
+    decimals_map = infer_decimal_places(atom_loop, df)
+
+    # You asked for specific known starts as example:
+    # If you prefer to override or supply exact starts:
+
+    start_cols_override = {
+        '_atom_site.id': 8,
+        '_atom_site.type_symbol': 15,
+        '_atom_site.label_atom_id': 17,
+        '_atom_site.label_alt_id': 22,
+        '_atom_site.label_comp_id': 24,
+        '_atom_site.label_asym_id': 29,
+        '_atom_site.label_entity_id': 31,
+        '_atom_site.label_seq_id': 33,
+        '_atom_site.pdbx_PDB_ins_code': 38,
+        '_atom_site.Cartn_x': 40,
+        '_atom_site.Cartn_y': 49,
+        '_atom_site.Cartn_z': 58,
+        '_atom_site.occupancy': 67,
+        '_atom_site.B_iso_or_equiv': 72,
+        '_atom_site.pdbx_formal_charge': 78,
+        '_atom_site.auth_seq_id': 80,
+        '_atom_site.auth_comp_id': 86,
+        '_atom_site.auth_asym_id': 92,
+        '_atom_site.auth_atom_id': 94,
+        '_atom_site.pdbx_PDB_model_num': 99
+    }
+
+    # merge inferred with overrides (override wins)
+    for k, v in start_cols_override.items():
+        start_cols[k] = v
+
+    cifdata = header, blocks, footer, block_name, block_text, atom_loop, start_cols, decimals_map
+    return df_canon, cifdata
+
+
+def df_to_cif(outpath, df, cifdata):
+    header, blocks, footer, block_name, block_text, atom_loop, start_cols, decimals = cifdata
+    # 6) write aligned loop text
+    new_loop_text = write_loop_from_df_aligned(
+        df=df,
+        loop_info=atom_loop,
+        tag_order=df.columns.tolist(),
+        start_cols=start_cols,       # optional: pass explicit mapping or let it be inferred
+        decimals_map=decimals,       # optional: pass explicit mapping or let it be inferred
+        float_fmt_template=None,     # use default '{:.{p}f}' behaviour inside function
+        missing_token='?',
+        indent=''
+    )
+
+    # 7) replace exactly using stored offsets and write file back
+    assert block_text[atom_loop['raw_start']:atom_loop['raw_end']] == atom_loop['raw_text']
+    new_block_text = replace_loop_in_block_text(block_text, atom_loop, new_loop_text)
+    blocks[block_name] = new_block_text
+    write_cif_from_parts(header, blocks, footer, outpath=outpath)
+
+
 def read_pdb_mmcif(filepath: str, append_heteroatoms: 'function' = None) -> PandasPdb | str:
     """
     Reads pdb or mmcif files and returns a PandasPdb of the contents, as well as the filename.
@@ -54,41 +137,81 @@ def read_pdb_mmcif(filepath: str, append_heteroatoms: 'function' = None) -> Pand
     if fileext in ['pdb', 'ent']:
         atomic_df = PandasPdb().read_pdb(filepath)
         atomic_df = atomic_df.get_model(1)
+
+        if len(atomic_df.df['HETATM']) > 0:
+            if callable(append_heteroatoms):
+                yn_func = append_heteroatoms
+            else:
+                yn_func = yes_no
+
+            if yn_func('Would you like to include heteroatoms so they are used in the solvent exposure calculation?'):    
+                atomic_df.df['ATOM'] = pd.concat([atomic_df.df['ATOM'], atomic_df.df['HETATM']], ignore_index = True)
+                atomic_df.df['ATOM']['record_name'] = 'ATOM'
+                atomic_df.df['HETATM'] = atomic_df.df['HETATM'].iloc[0:0]
+            else:
+                atomic_df.df['HETATM'] = atomic_df.df['HETATM'].iloc[0:0]
+        
+        try:
+            atomic_df.df['ATOM'] = atomic_df.df['ATOM'].drop('model_id', axis = 1)
+        except KeyError:
+            pass
+
+        try:
+            atomic_df.df['ATOM']['segment_id'] = ''
+        except KeyError:
+            pass
+
+        try:
+            atomic_df.df['ATOM']['element_symbol'] = ''
+        except KeyError:
+            pass
+
+        return atomic_df, filename, 'pdb'
+    
     elif fileext == 'cif':
-        atomic_df = PandasMmcif().read_mmcif(filepath)
-        atomic_df = atomic_df.convert_to_pandas_pdb()
+        df, cifdata = cif_to_df(filepath)
+        # print(len(df[df['_atom_site.group_PDB']=='HETATM']))
+        if len(df[df['_atom_site.group_PDB']=='HETATM']) > 0:
+            if callable(append_heteroatoms):
+                yn_func = append_heteroatoms
+            else:
+                yn_func = yes_no
+
+            if yn_func('Would you like to include heteroatoms so they are used in the solvent exposure calculation?'):    
+                df['_atom_site.group_PDB']='ATOM'
+            else:
+                df = df[df['_atom_site.group_PDB']=='ATOM']
+
+        return df, filename, cifdata
     else:
         raise ValueError('Wrong file format; allowed file formats are .pdb, .pdb.gz, .ent, .ent.gz, .cif, .cif.gz')
+
+
+def generate_indices(n_atoms:int, half_max_n:int) -> list:
+    '''
+    For generating which atoms to select for running multiple (k*(k+1)) pdist functions for one calculation.
+    Returns a list with k*(k-1) entries, each a 1 x max_n (or shorter) numpy array, where k = math.ceil(n_atoms / (max_n // 2)) - 1
+    Each row corresponds to one set of atoms (the entries of the row are the indices of the atom in the whole chain) which can have pdist run.
     
-    if len(atomic_df.df['HETATM']) > 0:
-        if callable(append_heteroatoms):
-            yn_func = append_heteroatoms
-        else:
-            yn_func = yes_no
+    Args:
+        n_atoms (int): number of atoms in input chain
+        max_n (int): maximum number of atoms pdist can be run on
 
-        if yn_func('Would you like to include heteroatoms so they are used in the solvent exposure calculation?'):    
-            atomic_df.df['ATOM'] = pd.concat([atomic_df.df['ATOM'], atomic_df.df['HETATM']], ignore_index = True)
-            atomic_df.df['ATOM']['record_name'] = 'ATOM'
-            atomic_df.df['HETATM'] = atomic_df.df['HETATM'].iloc[0:0]
-        else:
-            atomic_df.df['HETATM'] = atomic_df.df['HETATM'].iloc[0:0]
-    
-    try:
-        atomic_df.df['ATOM'] = atomic_df.df['ATOM'].drop('model_id', axis = 1)
-    except KeyError:
-        pass
+    Returns:
+        out (list): A list with k*(k-1) entries, each a 1 x max_n (or shorter) numpy array.
 
-    try:
-        atomic_df.df['ATOM']['segment_id'] = ''
-    except KeyError:
-        pass
+    Raises:
+        ValueError: If a single pdist can be used instead.
+    '''
+    if n_atoms <= half_max_n * 2:
+        raise ValueError('A single pdist can be used instead.')
+    k = math.ceil(n_atoms / half_max_n) - 1
+    out = []
+    for i in range(k):
+        for j in range(k-i):
+            out += [np.append(np.arange(i*half_max_n, (i+1)*half_max_n), np.arange((i+j+1)*half_max_n, min((i+j+2)*half_max_n, n_atoms)))]
 
-    try:
-        atomic_df.df['ATOM']['element_symbol'] = ''
-    except KeyError:
-        pass
-
-    return atomic_df, filename
+    return out
 
 
 def preprocess_iterate(pdb_path: str, 
@@ -112,95 +235,109 @@ def preprocess_iterate(pdb_path: str,
         out_path (str): The path of the saved preprocessed pdb.
     """
     
-    atomic_df, filename = read_pdb_mmcif(filepath=pdb_path, append_heteroatoms=yn)
+    atomic_df, filename, cifdata = read_pdb_mmcif(filepath=pdb_path, append_heteroatoms=yn)
 
-    temp = atomic_df.df['ATOM']['atom_name'].eq(include[0])
+    if cifdata == 'pdb':
+        atoms = atomic_df.df["ATOM"].copy()
+        atom_name, occupancy, residue_name, chain_id, residue_number = "atom_name", "occupancy", "residue_name", "chain_id", "residue_number"
+    else:
+        atoms = atomic_df.copy()
+        atom_name, occupancy, residue_name, chain_id, residue_number = "_atom_site.label_atom_id", "_atom_site.occupancy", "_atom_site.label_comp_id", "_atom_site.label_asym_id", "_atom_site.label_seq_id"
+
+
+    temp = atoms[atom_name].eq(include[0])
 
     split_occupancy = []
     added_residues = []
     deleted_residues = []
 
     if redefine_chains:
-        residue_counter = atomic_df.df['ATOM'].iloc[0]['residue_number']
+        residue_counter = atoms.iloc[0][residue_number]
         chain = 65
     else:
         residue_counter = 0
 
-    for i, x in atomic_df.df['ATOM'].iterrows():
-        if x['residue_name'] in standard_residues or x['residue_name'] in added_residues:
-            if x['atom_name'][0] in include and x['occupancy'] > 0.5:
+    for i, x in atoms.iterrows():
+        if x[residue_name] in standard_residues or x[residue_name] in added_residues:
+            if x[atom_name][0] in include and x[occupancy] > 0.5:
             
                 temp.loc[i] = True
 
-                if x['residue_number'] >= residue_counter and redefine_chains:
-                    atomic_df.df['ATOM'].loc[i, 'chain_id'] = chr(chain)
-                    residue_counter = x['residue_number']
+                if x[residue_number] >= residue_counter and redefine_chains:
+                    atoms.loc[i, chain_id] = chr(chain)
+                    residue_counter = x[residue_number]
                 elif redefine_chains:
                     chain += 1
-                    atomic_df.df['ATOM'].loc[i, 'chain_id'] = chr(chain)
-                    residue_counter = x['residue_number']
+                    atoms.loc[i, chain_id] = chr(chain)
+                    residue_counter = x[residue_number]
 
-            if x['atom_name'][0] in include and x['occupancy'] == 0.5:
-                if x['residue_number'] >= residue_counter and redefine_chains:
-                    atomic_df.df['ATOM'].loc[i, 'chain_id'] = chr(chain)
-                    residue_counter = x['residue_number']
+            if x[atom_name][0] in include and x[occupancy] == 0.5:
+                if x[residue_number] >= residue_counter and redefine_chains:
+                    atoms.loc[i, chain_id] = chr(chain)
+                    residue_counter = x[residue_number]
                 elif redefine_chains:
                     chain += 1
-                    atomic_df.df['ATOM'].loc[i, 'chain_id'] = chr(chain)
-                    residue_counter = x['residue_number']
+                    atoms.loc[i, chain_id] = chr(chain)
+                    residue_counter = x[residue_number]
 
-                if x['chain_id'] + str(x['residue_number']) + x['atom_name'] not in split_occupancy:
+                if x[chain_id] + str(x[residue_number]) + x[atom_name] not in split_occupancy:
                     temp.loc[i] = True
-                    split_occupancy += [x['chain_id'] + str(x['residue_number']) + x['atom_name']]
-        elif x['residue_name'] in deleted_residues:
+                    split_occupancy += [x[chain_id] + str(x[residue_number]) + x[atom_name]]
+        elif x[residue_name] in deleted_residues:
             temp.loc[i] = False
         else:
-            if yn(f"Would you like to include residue {x['residue_name']}?"):
-                added_residues += [x['residue_name']]
-                if x['atom_name'][0] in include and x['occupancy'] > 0.5:
+            if yn(f"Would you like to include residue {x[residue_name]}?"):
+                added_residues += [x[residue_name]]
+                if x[atom_name][0] in include and x[occupancy] > 0.5:
                 
                     temp.loc[i] = True
 
-                    if x['residue_number'] >= residue_counter and redefine_chains:
-                        atomic_df.df['ATOM'].loc[i, 'chain_id'] = chr(chain)
-                        residue_counter = x['residue_number']
+                    if x[residue_number] >= residue_counter and redefine_chains:
+                        atoms.loc[i, chain_id] = chr(chain)
+                        residue_counter = x[residue_number]
                     elif redefine_chains:
                         chain += 1
-                        atomic_df.df['ATOM'].loc[i, 'chain_id'] = chr(chain)
-                        residue_counter = x['residue_number']
+                        atoms.loc[i, chain_id] = chr(chain)
+                        residue_counter = x[residue_number]
 
-                if x['atom_name'][0] in include and x['occupancy'] == 0.5:
-                    if x['residue_number'] >= residue_counter and redefine_chains:
-                        atomic_df.df['ATOM'].loc[i, 'chain_id'] = chr(chain)
-                        residue_counter = x['residue_number']
+                if x[atom_name][0] in include and x[occupancy] == 0.5:
+                    if x[residue_number] >= residue_counter and redefine_chains:
+                        atoms.loc[i, chain_id] = chr(chain)
+                        residue_counter = x[residue_number]
                     elif redefine_chains:
                         chain += 1
-                        atomic_df.df['ATOM'].loc[i, 'chain_id'] = chr(chain)
-                        residue_counter = x['residue_number']
+                        atoms.loc[i, chain_id] = chr(chain)
+                        residue_counter = x[residue_number]
 
-                    if x['chain_id'] + str(x['residue_number']) + x['atom_name'] not in split_occupancy:
+                    if x[chain_id] + str(x[residue_number]) + x[atom_name] not in split_occupancy:
                         temp.loc[i] = True
-                        split_occupancy += [x['chain_id'] + str(x['residue_number']) + x['atom_name']]
+                        split_occupancy += [x[chain_id] + str(x[residue_number]) + x[atom_name]]
             else:
-                deleted_residues += [x['residue_name']]
+                deleted_residues += [x[residue_name]]
                 temp.loc[i] = False
 
-    atomic_df.df['ATOM'] = atomic_df.df['ATOM'][temp]
-    out_path = os.path.join(pre_path, filename+'.pdb')
-    atomic_df.to_pdb(out_path)
+    atoms = atoms[temp]
+    if cifdata == 'pdb':
+        atomic_df.df["ATOM"] = atoms.copy()
+        out_path = os.path.join(pre_path, filename+'.pdb')
+        atomic_df.to_pdb(out_path)
+    else:
+        df = atoms.copy()
+        out_path = os.path.join(pre_path, filename+'.cif')
+        df_to_cif(outpath=out_path, df=df, cifdata=cifdata)
 
     return out_path
 
 
-def preprocess(
-    pdb_path: str,
-    pre_path: str,
-    yn: 'function',
-    include: list = ['C', 'N', 'O', 'S'],
-    redefine_chains: bool = False) -> str:
+def preprocess(pdb_path: str,
+               pre_path: str,
+               yn: 'function',
+               include: list = ['C', 'N', 'O', 'S'],
+               redefine_chains: bool = False) -> str:
     """
     Simple preprocessing of pdb and mmcif files. 
-    By default, removes all atoms that do not begin with C, N, O, or S; this normally only leaves carbon, nitrogen, oxygen, sulfur, and selenium for biological molecules.
+    By default, when handling pdb files, it removes all atoms that do not begin with C, N, O, or S; this normally only leaves carbon, nitrogen, oxygen, sulfur, and selenium for biological molecules.
+    By default, when handling cif files, it removes all atoms that are not C, N, O, S, or Se.
     Non-standard residue names are flagged, and the user decides whether to include or not in the preprocessed file.
 
     Args:
@@ -213,29 +350,39 @@ def preprocess(
     Returns:
         out_path (str): The path of the saved preprocessed pdb.
     """
-    atomic_df, filename = read_pdb_mmcif(filepath=pdb_path, append_heteroatoms=yn)
-    atoms = atomic_df.df["ATOM"].copy()
+    atomic_df, filename, cifdata = read_pdb_mmcif(filepath=pdb_path, append_heteroatoms=yn)
+
+    if cifdata == 'pdb':
+        atoms = atomic_df.df["ATOM"].copy()
+        atom_name, occupancy, residue_name, chain_id, residue_number = "atom_name", "occupancy", "residue_name", "chain_id", "residue_number"
+    else:
+        atoms = atomic_df.copy()
+        atom_name, occupancy, residue_name, chain_id, residue_number = "_atom_site.label_atom_id", "_atom_site.occupancy", "_atom_site.label_comp_id", "_atom_site.label_asym_id", "_atom_site.label_seq_id"
 
     # Normalize expected columns exist
-    required_cols = ["atom_name", "occupancy", "residue_name", "chain_id", "residue_number"]
+    required_cols = [atom_name, occupancy, residue_name, chain_id, residue_number]
     for c in required_cols:
         if c not in atoms.columns:
             raise KeyError(f"Expected column '{c}' in ATOM dataframe")
-
+        
     # 1) Base mask: first-letter of atom_name is in include AND occupancy > 0.5
-    atom_prefix = atoms["atom_name"].astype(str).str[0]
-    mask_gt_half = (atom_prefix.isin(include)) & (atoms["occupancy"].astype(float) > 0.5)
+    if cifdata == 'pdb':
+        atom_prefix = atoms[atom_name].astype(str).str[0]
+        mask_gt_half = (atom_prefix.isin(include)) & (atoms[occupancy].astype(float) > 0.5)
+    else:
+        atom_prefix = atoms["_atom_site.type_symbol"].astype(str)
+        mask_gt_half = (atom_prefix.isin(['C', 'N', 'O', 'S', 'Se'])) & (atoms[occupancy].astype(float) > 0.5)
 
     # 2) Handle occupancy == 0.5: include only the first occurrence per (chain_id, residue_number, atom_name)
-    half_mask = atoms["occupancy"].astype(float) == 0.5
+    half_mask = atoms[occupancy].astype(float) == 0.5
     if half_mask.any():
         # Build a string key safely (cast to str first)
         key = (
-            atoms["chain_id"].astype(str)
+            atoms[chain_id].astype(str)
             + "_"
-            + atoms["residue_number"].astype(str)
+            + atoms[residue_number].astype(str)
             + "_"
-            + atoms["atom_name"].astype(str)
+            + atoms[atom_name].astype(str)
         )
         # keep the first occurrence of each key among the half-occupancy rows
         # we want: among rows where occupancy == 0.5, mark True for the first row of each key
@@ -248,7 +395,7 @@ def preprocess(
 
     # 3) Non-standard residues: prompt once per residue and include/exclude all atoms of that residue
     std_res = set(standard_residues)
-    residue_names = pd.Index(atoms["residue_name"].astype(str).unique())
+    residue_names = pd.Index(atoms[residue_name].astype(str).unique())
     nonstandard = [r for r in residue_names if r not in std_res]
 
     added_residues = set()
@@ -263,8 +410,8 @@ def preprocess(
 
     # Compose final residue mask
     allowed_residues = std_res.union(added_residues)
-    residue_ok = atoms["residue_name"].astype(str).isin(allowed_residues)
-    residue_deleted = atoms["residue_name"].astype(str).isin(deleted_residues)
+    residue_ok = atoms[residue_name].astype(str).isin(allowed_residues)
+    residue_deleted = atoms[residue_name].astype(str).isin(deleted_residues)
 
     # atoms must satisfy keep_mask AND be allowed by residue selection (and not explicitly deleted)
     keep_mask &= residue_ok & (~residue_deleted)
@@ -275,12 +422,12 @@ def preprocess(
         # This replicates "relabel each chain starting with A and going on alphabetically".
         # We iterate over residues only (not per atom), building a mapping from original (chain_id,residue_number)
         # to new chain letters; then map it back to atoms.
-        res_index = atoms[["chain_id", "residue_number"]].astype(str)
+        res_index = atoms[[chain_id, residue_number]].astype(str)
         # Compose residue-level keys maintaining original order
-        res_keys = res_index["chain_id"] + "_" + res_index["residue_number"]
+        res_keys = res_index[chain_id] + "_" + res_index[residue_number]
         # We want to order by the original dataframe order and detect when residue_number decreases -> new chain
         # Extract residue_numbers as integers for change detection (preserve order)
-        resnums = atoms["residue_number"].astype(int).to_numpy()
+        resnums = atoms[residue_number].astype(int).to_numpy()
         new_chain_letters = []
         current_letter_ord = ord("A")
         last_resnum = None
@@ -296,12 +443,17 @@ def preprocess(
                 current_letter_ord += 1
             new_chain_letters.append(chr(current_letter_ord))
             last_resnum = rn
-        atoms.loc[:, "chain_id"] = new_chain_letters
+        atoms.loc[:, chain_id] = new_chain_letters
 
     # 5) Apply mask and save the preprocessed pdb
-    atomic_df.df["ATOM"] = atoms.loc[keep_mask].copy()
-    out_path = os.path.join(pre_path, f"{filename}.pdb")
-    atomic_df.to_pdb(out_path)
+    if cifdata == 'pdb':
+        atomic_df.df["ATOM"] = atoms.loc[keep_mask].copy()
+        out_path = os.path.join(pre_path, f"{filename}.pdb")
+        atomic_df.to_pdb(out_path)
+    else:
+        df = atoms.loc[keep_mask].copy()
+        out_path = os.path.join(pre_path, f"{filename}.cif")
+        df_to_cif(outpath=out_path, df=df, cifdata=cifdata)
 
     return out_path
 
@@ -340,120 +492,50 @@ def f2_cutoff(d: float|np.ndarray, cutoff: float = 50.0, eps: float = np.inf) ->
     if np.isscalar(d):
         return float(scores)
     return scores
-  
 
-def exposure_not_vectorizable(pdb_path: str,
-                              out_path: str,
-                              assignment: None | dict[str, np.ndarray] = None, 
-                              funcs: dict[str, 'function'] = {'2c50': f2_cutoff}, 
-                              max_scores: dict[str, float] = {'2c50': 26.5}, 
-                              save_matrix: bool = False, 
-                              save_scores_as_vector: bool = False,
-                              print_percentages: list | np.ndarray = [1,5,25,50,75],
-                              progress_callback: 'function' = None):
+
+def power_cutoff(d: float|np.ndarray, power: float, cutoff: float, eps: float = np.inf) -> float|np.ndarray:
     """
-    Slower method of calculating solvent exposure. Will work with scoring functions that are not vectorizable. Also provides updates on progress at user-defined intervals.
+    Vector-safe (accepts scalars or numpy arrays for faster operation) version of scoring function. 
+    - Returns 0 for distances, d, above 0
+    - Returns d ** -power for distances within cutoff
+    - Returns inf for distances ≈ 0 -> atom does not count towards its own score
+    - Replaces any nan/inf with finite numbers (0.0) for safety
 
     Args:
-        pdb_path (str): The path of the file to use in score calculation (typically pdb or mmcif). It has n atoms.
-        out_path (str): The path of the folder inside which the output pdb will be saved.
-        assignment (None or dict[str, numpy array], optional): Dictionary with value(s) that are length n numpy arrays. 
-            As standard, these are boolean arrays used to obtain solvent exposure scores only accounting for the contribution of atoms with entries = True/1 while ignore the contribution of atoms with entries False/0. 
-            In principle, this can be used for any algebraic operation, including calculating solvent exposure scores with weighted scores from each atom.
-        funcs (dict[str: function], optional): Dictionary with value(s) calling scoring function(s). 
-            Keys are used for output file naming, in this case 2c50 meaning d**-2 scoring function with a distance cutoff at 50 Å (the default scoring function).
-        max_scores (dict[str: float], optional): Dictionary with value(s) corresponding to the maximum value for the corresponding scoring function(s). 
-            The keys used should be those used as the keys in funcs.
-        save_matrix (bool, optional): If True, the n x n numpy array giving each atom-atom score is saved in the out_path folder in .npy format.
-        save_scores_as_vector (bool, optional): If True, the 1 x n numpy array of calculated solvent exposure scores is saved in the out_path folder in .npy format.
-        print_percentages (list[float|int]): A list of values, x, such that when the calculation is x% complete, a progress message containing completion percentage and estimated time remaining is put out.
-        progress_callback (None or function, optional): If None, as default, progress messages are printed. If a function is given, custom behaviour can be implemented, such as for printing in a GUI during the run. 
+        d (scalar or numpy array): Distance between two atoms or array of distances between atoms.
+        cutoff (float, optional): Cutoff distance; inputs greater than this will return 0.
+        eps (float, optional): Epsilon used for distance ≈ 0. Purposefully infinite so that each atom does not contribute to its own score.
 
     Returns:
-        out (list[list[str, float, float]]): A list with one list entry (sublist) per pdb saved. 
-            Each sublist contains three entries: the first is the path of the saved pdb, the second is the minimum solvent exposure score in the saved pdb, and the third is the maximum solvent exposure score in the saved pdb.
-
-    Raises:
-        TypeError: assignment must be None or dict.
+        scores (float or numpy array): Score or array of scores for input of scalar d or numpy array d, respectively.
     """
-    atomic_df, filename = read_pdb_mmcif(filepath=pdb_path)
+    da = np.asarray(d, dtype=float)
 
-    coords = np.vstack((atomic_df.df['ATOM']['x_coord'].to_numpy(), 
-                        atomic_df.df['ATOM']['y_coord'].to_numpy(), 
-                        atomic_df.df['ATOM']['z_coord'].to_numpy())).T
+    # avoid warnings but still produce controlled values
+    with np.errstate(divide='ignore', invalid='ignore'):
+        # replace zeros with eps before inverting/squaring to avoid inf
+        safe = np.where(da == 0.0, eps, da)
+        scores = 1.0 / (safe ** power)
 
-    pair_scores = {}
+    # zero out above cutoff
+    scores = np.where(da > cutoff, 0.0, scores)
 
-    out = []
+    # replace any non-finite values (shouldn't be any now) with 0.0
+    scores = np.nan_to_num(scores, nan=0.0, posinf=0.0, neginf=0.0)
 
-    n = len(coords)
-    for key in funcs:
-        pair_scores[key] = np.zeros((n, n))
-
-    print_i = [round((2*n - 3 - np.sqrt((2*n - 3)**2 - 4*(2-2*n+n*(n-1)*percent/100))) / 2) for percent in print_percentages]
-
-    start = time.time()
-    for i, coord1 in enumerate(coords):
-        for j, coord2 in enumerate(coords[i+1:]):
-            distance = np.linalg.norm(coord1-coord2)
-            for key, func in funcs.items():
-                pair_scores[key][i,i+j+1] = pair_scores[key][i+j+1,i] = func(distance)
-        if i in print_i:
-            msg = (f"Exposure calculation {print_percentages[print_i.index(i)]}% complete. "
-                   f"Estimated {math.ceil((100 - print_percentages[print_i.index(i)]) * (time.time() - start)/print_percentages[print_i.index(i)])} seconds remaining.")
-
-            if progress_callback:
-                try:
-                    progress_callback(msg)
-                except Exception:
-                    print(msg)
-            else:
-                print(msg)
-
-
-
-
-    if assignment == None:
-        for key, mat in pair_scores.items():
-            temp = np.sum(mat, axis = 0)
-            atomic_df.df['ATOM']['b_factor'] = max_scores[key] - temp
-            atomic_df.to_pdb(os.path.join(out_path, filename + '_' + key + '.pdb'))
-
-            out += [[os.path.join(out_path, filename + '_' + key + '.pdb'), min(max_scores[key] - temp), max(max_scores[key] - temp)]]
-            
-            if save_scores_as_vector:
-                np.save(os.path.join(out_path, filename + '_' + key + '_vec.npy', temp))
-
-            if save_matrix:
-                np.save(os.path.join(out_path, filename + '_' + key + '_mat.npy', mat))
-    
-    elif type(assignment) == dict:
-        mat_not_saved = True
-        for k, assigment_vert in assignment.items():
-            for key, mat in pair_scores.items():
-                temp = assigment_vert @ mat
-                atomic_df.df['ATOM']['b_factor'] = max_scores[key] - temp
-                atomic_df.to_pdb(os.path.join(out_path, filename + '_' + k + '_' + key + '.pdb'))
-                out += [[os.path.join(out_path, filename + '_' + k + '_' + key + '.pdb'), min(max_scores[key] - temp), max(max_scores[key] - temp)]]
-
-                if save_scores_as_vector:
-                    np.save(os.path.join(out_path, filename + '_' + k + '_' + key + '_vec.npy'), max_scores[key] - temp)
-
-                if save_matrix and mat_not_saved:
-                    np.save(os.path.join(out_path, filename + '_' + key + '_mat.npy'), mat)
-                    mat_not_saved = False
-
-    else:
-        raise TypeError("assignment must be None or dict")
-
-    return out
-
+    # If input was scalar, return scalar float for compatibility
+    if np.isscalar(d):
+        return float(scores)
+    return scores
+  
 
 def exposure(pdb_path: str,
              out_path: str,
              assignment: None | dict[str, np.ndarray] = None, 
              funcs: dict[str, 'function'] = {'2c50': f2_cutoff}, 
-             max_scores: dict[str, float] = {'2c50': 26.5}) -> list[list[str|float|float]]:
+             max_scores: dict[str, float] = {'2c50': 26.5},
+             progress_callback: 'function' = None) -> list[list[str|float|float]]:
     """
     Saves a pdb with b-factor set to the solvent exposure score for all atoms in the pdb supplied. 
     It is recommended to run on preprocessed pdb files, so that decisions on how to handle non-standard atoms and residues are made and hydrogen atoms are removed.
@@ -469,6 +551,7 @@ def exposure(pdb_path: str,
             Keys are used for output file naming, in this case 2c50 meaning d**-2 scoring function with a distance cutoff at 50 Å (the default scoring function).
         max_scores (dict[str: float], optional): Dictionary with value(s) corresponding to the maximum value for the corresponding scoring function(s). 
             The keys used should be those used as the keys in funcs.
+        progress_callback (None or function, optional): If None, as default, progress messages are printed. If a function is given, custom behaviour can be implemented, such as for printing in a GUI during the run. 
 
     Returns:
         out (list[list[str, float, float]]): A list with one list entry (sublist) per pdb saved. 
@@ -478,33 +561,57 @@ def exposure(pdb_path: str,
         TypeError: assignment must be None or dict.
     """
     
-    atomic_df, filename = read_pdb_mmcif(filepath=pdb_path)
-
-    coords = np.vstack((atomic_df.df['ATOM']['x_coord'].to_numpy(), 
-                        atomic_df.df['ATOM']['y_coord'].to_numpy(), 
-                        atomic_df.df['ATOM']['z_coord'].to_numpy())).T
+    atomic_df, filename, cifdata = read_pdb_mmcif(filepath=pdb_path)
+    if cifdata == 'pdb':
+        df = atomic_df.df['ATOM'].copy()
+        x_coord, y_coord, z_coord, b_factor = 'x_coord', 'y_coord', 'z_coord', 'b_factor'
+    else:
+        df = atomic_df
+        x_coord, y_coord, z_coord, b_factor = '_atom_site.Cartn_x', '_atom_site.Cartn_y', '_atom_site.Cartn_z', '_atom_site.B_iso_or_equiv'
+    
+    coords = np.vstack((df[x_coord].to_numpy(), 
+                        df[y_coord].to_numpy(), 
+                        df[z_coord].to_numpy())).T
     out = []
 
     n = coords.shape[0]
+
+    mx = max_len_for_full_matrix()
+
+    if n > mx:
+        msg = 'Running funcs.exposure_low_memory() to allow calculation for large molecule.'
+        if progress_callback:
+            try:
+                progress_callback(msg)
+            except Exception:
+                print(msg)
+        else:
+            print(msg)
+
+        return exposure_low_memory(pdb_path=pdb_path, out_path=out_path, max_atoms=mx, assignment=assignment, funcs=funcs, max_scores=max_scores, progress_callback=progress_callback)
+
     d_cond = pdist(coords)  
-    for key, func in funcs.items():             # condensed distances (len m = n*(n-1)/2)
-        vals = func(d_cond)                  # elementwise func applied to condensed distances
-        # accumulate into per-atom sum vector without expanding to n x n
+    for key, func in funcs.items():
+        vals = func(d_cond)
         if assignment == None:
             sums = np.zeros(n, dtype=vals.dtype)
             idx = 0
             for i in range(n-1):
-                # length of this row in condensed form = n - i - 1
                 l = n - i - 1
                 sums[i] += vals[idx: idx + l].sum()
-                # the vals in this block correspond to pairs (i, i+1..n-1)
-                sums[i+1: n] += vals[idx: idx + l]   # vector add to the other atoms
+                sums[i+1: n] += vals[idx: idx + l]
                 idx += l
                 
-            atomic_df.df['ATOM']['b_factor'] = max_scores[key] - sums
-            atomic_df.to_pdb(os.path.join(out_path, filename + '_' + key + '.pdb'))
+            df[b_factor] = max_scores[key] - sums
+            if cifdata == 'pdb':
+                outname = os.path.join(out_path, filename + '_' + key + '.pdb')
+                atomic_df.df['ATOM'] = df.copy()
+                atomic_df.to_pdb(outname)
+            else:
+                outname = os.path.join(out_path, filename + '_' + key + '.cif')
+                df_to_cif(outname, df=df, cifdata=cifdata)
 
-            out += [[os.path.join(out_path, filename + '_' + key + '.pdb'), min(max_scores[key] - sums), max(max_scores[key] - sums)]]#, elapsed, len(coords)]]
+            out += [[outname, min(max_scores[key] - sums), max(max_scores[key] - sums)]]
     
         elif type(assignment) == dict:
             for k, assignment_vert in assignment.items():
@@ -512,22 +619,187 @@ def exposure(pdb_path: str,
                 sums = np.zeros(n, dtype=vals.dtype)
                 for i in range(n - 1):
                     l = n - i - 1
-                    block = vals[idx: idx + l]          # values for pairs (i, i+1..n-1)
-                    # contribution to sums[i] from j>i: sum_j v_ij * assignment[j]
+                    block = vals[idx: idx + l]
                     sums[i] += np.dot(block, assignment_vert[i+1: n])
-                    # contribution to sums[j] from i when assignment[i] == 1:
                     if assignment_vert[i] != 0:
-                        # we need to add v_ij * assignment[i] to sums[j] for j>i
                         sums[i+1: n] += block * assignment_vert[i]
                     idx += l
 
-                # elapsed = time.time()-start
-                atomic_df.df['ATOM']['b_factor'] = max_scores[key] - sums
-                atomic_df.to_pdb(os.path.join(out_path, filename + '_' + k + '_' + key + '.pdb'))
-                out += [[os.path.join(out_path, filename + '_' + k + '_' + key + '.pdb'), min(max_scores[key] - sums), max(max_scores[key] - sums)]]#, elapsed, len(coords)]]
+                df[b_factor] = max_scores[key] - sums
+                if cifdata == 'pdb':
+                    outname = os.path.join(out_path, filename + '_' + k + '_' + key + '.pdb')
+                    atomic_df.df['ATOM'] = df.copy()
+                    atomic_df.to_pdb(outname)
+                else:
+                    outname = os.path.join(out_path, filename + '_' + k + '_' + key + '.cif')
+                    df_to_cif(outname, df=df, cifdata=cifdata)
+
+                out += [[outname, min(max_scores[key] - sums), max(max_scores[key] - sums)]]
 
         else:
             raise TypeError("assignment must be None or dict")
+    return out
+
+
+def exposure_low_memory(pdb_path: str,
+                        out_path: str,
+                        max_atoms: int,
+                        assignment: None | dict[str, np.ndarray] = None, 
+                        funcs: dict[str, 'function'] = {'2c50': f2_cutoff}, 
+                        max_scores: dict[str, float] = {'2c50': 26.5},
+                        progress_callback: 'function' = None):
+    '''
+    Saves a pdb with b-factor set to the solvent exposure score for all atoms in the pdb supplied. 
+    It is recommended to run on preprocessed pdb files, so that decisions on how to handle non-standard atoms and residues are made and hydrogen atoms are removed.
+    A standard scoring function and maximum score are used by default, but one in able to experiment with these if they are interested.
+
+    Args:
+        pdb_path (str): The path of the file to use in score calculation (typically pdb or mmcif). It has n atoms.
+        out_path (str): The path of the folder inside which the output pdb will be saved.
+        max_atoms (int): Length of maximum array pdist can be run on. Typically the return of funcs.max_len_for_full_matrix().
+        assignment (None or dict[str, numpy array], optional): Dictionary with value(s) that are length n numpy arrays. 
+            As standard, these are boolean arrays used to obtain solvent exposure scores only accounting for the contribution of atoms with entries = True/1 while ignore the contribution of atoms with entries False/0. 
+            In principle, this can be used for any algebraic operation, including calculating solvent exposure scores with weighted scores from each atom.
+        funcs (dict[str: function], optional): Dictionary with value(s) calling scoring function(s). 
+            Keys are used for output file naming, in this case 2c50 meaning d**-2 scoring function with a distance cutoff at 50 Å (the default scoring function).
+        max_scores (dict[str: float], optional): Dictionary with value(s) corresponding to the maximum value for the corresponding scoring function(s). 
+            The keys used should be those used as the keys in funcs.
+        progress_callback (None or function, optional): If None, as default, progress messages are printed. If a function is given, custom behaviour can be implemented, such as for printing in a GUI during the run. 
+
+    Returns:
+        out (list[list[str, float, float]]): A list with one list entry (sublist) per pdb saved. 
+            Each sublist contains three entries: the first is the path of the saved pdb, the second is the minimum solvent exposure score in the saved pdb, and the third is the maximum solvent exposure score in the saved pdb.
+
+    Raises:
+        TypeError: assignment must be None or dict.
+    '''
+    
+    atomic_df, filename, cifdata = read_pdb_mmcif(filepath=pdb_path)
+    if cifdata == 'pdb':
+        df = atomic_df.df['ATOM'].copy()
+        x_coord, y_coord, z_coord, b_factor = 'x_coord', 'y_coord', 'z_coord', 'b_factor'
+    else:
+        df = atomic_df
+        x_coord, y_coord, z_coord, b_factor = '_atom_site.Cartn_x', '_atom_site.Cartn_y', '_atom_site.Cartn_z', '_atom_site.B_iso_or_equiv'
+    
+    coords = np.vstack((df[x_coord].to_numpy(), 
+                        df[y_coord].to_numpy(), 
+                        df[z_coord].to_numpy())).T
+        
+    out=[]
+
+    step = max_atoms // 2
+    n = len(coords)
+    if assignment == None:
+        assignment_vert1 = np.ones(n, dtype=bool)
+    elif type(assignment) == dict:
+        assignment_vert1 = np.ones((n, len(assignment)), dtype=bool)
+        for ind, vert in enumerate(assignment.values()):
+            assignment_vert1[:,ind] = vert
+    else:
+        raise TypeError("assignment must be None or dict")
+    
+    sums1 = np.zeros_like(assignment_vert1, dtype=np.float64)
+    assignment_vert = {}
+    sums = {}
+    for key, _ in funcs.items():
+        assignment_vert[key] = assignment_vert1
+        sums[key] = sums1
+
+
+    r1 = math.ceil(n / step) - 1
+    gx = generate_indices(n_atoms=n, half_max_n=step)
+    iters = len(gx)
+    start = time.time()
+    current = time.time()-start
+    msg = f'Started matrix calculation 1 of {iters}.'
+    if progress_callback:
+        try:
+            progress_callback(msg)
+        except Exception:
+            print(msg)
+    else:
+        print(msg)
+
+    for k, m in enumerate(gx):
+        if k != 0:
+            current = time.time()-start
+            msg = f'Started matrix calculation {k+1} of {iters} after {current:.1f} seconds. Estimated {(iters-k)*current/(k):.1f} seconds remaining.'
+            if progress_callback:
+                try:
+                    progress_callback(msg)
+                except Exception:
+                    print(msg)
+            else:
+                print(msg)
+        d_cond = pdist(coords[m])
+        for key, func in funcs.items():
+            vals = func(d_cond)
+            nm=len(m)    
+            if k == 0:
+                idx=0
+                for i in range(nm-1):
+                    l = nm - i - 1
+                    block = vals[idx:idx+l]
+                    sums[key][m[i]] += np.dot(block, assignment_vert[key][m[i+1:nm]])
+                    if assignment:
+                        sums[key][m[i+1:nm]] += np.outer(block, assignment_vert[key][m[i]])
+                    else:
+                        sums[key][m[i+1:nm]] += block * assignment_vert[key][m[i]]
+                    idx += l
+
+            elif k < r1:
+                idx=0
+                for i in range(nm-1):
+                    l = nm - i - 1
+                    block = vals[max(idx, idx+l-(nm-step)):idx+l]
+                    sums[key][m[i]] += np.dot(block, assignment_vert[key][m[max(i+1, step):nm]])
+                    if assignment:
+                        sums[key][m[max(i+1, step):nm]] += np.outer(block, assignment_vert[key][m[i]])
+                    else:
+                        sums[key][m[max(i+1, step):nm]] += block * assignment_vert[key][m[i]]
+                    idx += l
+                    
+            else:
+                idx=0
+                for i in range(step):
+                    l = nm - i - 1
+                    block = vals[max(idx, idx+l-(nm-step)):idx+l]
+                    sums[key][m[i]] += np.dot(block, assignment_vert[key][m[max(i+1, step):nm]])
+                    if assignment:
+                        sums[key][m[max(i+1, step):nm]] += np.outer(block, assignment_vert[key][m[i]])
+                    else:
+                        sums[key][m[max(i+1, step):nm]] += block * assignment_vert[key][m[i]]
+                    idx += l
+            print(sums[key])
+
+
+    for key, func in funcs.items():
+        if assignment:
+            ind=0
+            for ind, k in enumerate(assignment.keys()):
+                df[b_factor] = max_scores[key] - sums[key][:,ind]
+                if cifdata == 'pdb':
+                    outname = os.path.join(out_path, filename + '_' + k + '_' + key + '.pdb')
+                    atomic_df.df['ATOM'] = df.copy()
+                    atomic_df.to_pdb(outname)
+                else:
+                    outname = os.path.join(out_path, filename + '_' + k + '_' + key + '.cif')
+                    df_to_cif(outname, df=df, cifdata=cifdata)
+                out += [[outname, min(max_scores[key] - sums[key][:,ind]), max(max_scores[key] - sums[key][:,ind])]]
+                ind+=1
+        else:
+            df[b_factor] = max_scores[key] - sums[key]
+            if cifdata == 'pdb':
+                outname = os.path.join(out_path, filename + '_' + key + '.pdb')
+                atomic_df.df['ATOM'] = df.copy()
+                atomic_df.to_pdb(outname)
+            else:
+                outname = os.path.join(out_path, filename + '_' + key + '.cif')
+                df_to_cif(outname, df=df, cifdata=cifdata)
+            out += [[outname, min(max_scores[key] - sums[key]), max(max_scores[key] - sums[key])]]
+
+    
     return out
 
 
@@ -597,33 +869,42 @@ def average_score(filepath: str, backbone: bool = False) -> list[list[str|float|
             out += [[filepath[:-8] + '_avgbyresbb.defattr', min(backbone_scores), max(backbone_scores)]]
 
     else:
-        atomic_df, filename = read_pdb_mmcif(filepath=filepath)
+        atomic_df, filename, cifdata = read_pdb_mmcif(filepath=filepath)
 
-        current_residue = atomic_df.df['ATOM'].iloc[0].loc['chain_id'] + str(atomic_df.df['ATOM'].iloc[0].loc['residue_number'])
+        if cifdata == 'pdb':
+            df = atomic_df.df['ATOM'].copy()
+            b_factor = 'b_factor'
+            atom_name, chain_id, residue_number = "atom_name", "chain_id", "residue_number"
+        else:
+            df = atomic_df
+            b_factor = '_atom_site.B_iso_or_equiv'
+            atom_name, chain_id, residue_number = "_atom_site.label_atom_id", "_atom_site.label_asym_id", "_atom_site.label_seq_id"
 
-        scores = np.zeros(len(atomic_df.df['ATOM']))
-        backbone_scores = np.zeros(len(atomic_df.df['ATOM']))
+        current_residue = df.iloc[0].loc[chain_id] + str(df.iloc[0].loc[residue_number])
+
+        scores = np.zeros(len(df))
+        backbone_scores = np.zeros(len(df))
 
         atom_count = 0
         score = 0
         backbone_atom_count = 0
         backbone_score = 0
 
-        for i, x in atomic_df.df['ATOM'].iterrows():
-            if x['chain_id'] + str(x['residue_number']) == current_residue:
+        for i, x in df.iterrows():
+            if x[chain_id] + str(x[residue_number]) == current_residue:
                 atom_count+=1
-                score+=x['b_factor']
-                if x['atom_name'] in ['C', 'N', 'O', 'CA']:
+                score+=x[b_factor]
+                if x[atom_name] in ['C', 'N', 'O', 'CA']:
                     backbone_atom_count+=1
-                    backbone_score+=x['b_factor']
-                if x.equals(atomic_df.df['ATOM'].iloc[-1]):
+                    backbone_score+=x[b_factor]
+                if x.equals(df.iloc[-1]):
                     for j in range(atom_count):
                         scores[i-j] = score / atom_count
                         if backbone_atom_count != 0:
                             backbone_scores[i-j] = backbone_score / backbone_atom_count
 
                     atom_count=1
-                    score=x['b_factor']
+                    score=x[b_factor]
 
             else:
                 for j in range(atom_count):
@@ -632,28 +913,39 @@ def average_score(filepath: str, backbone: bool = False) -> list[list[str|float|
                         backbone_scores[i-j-1] = backbone_score / backbone_atom_count
 
                 atom_count=1
-                score=x['b_factor']
-                current_residue = x['chain_id'] + str(x['residue_number'])
+                score=x[b_factor]
+                current_residue = x[chain_id] + str(x[residue_number])
 
-                if x['atom_name'] in ['C', 'N', 'O', 'CA']:
+                if x[atom_name] in ['C', 'N', 'O', 'CA']:
                     backbone_atom_count=1
-                    backbone_score=x['b_factor']
+                    backbone_score=x[b_factor]
                 else:
                     backbone_atom_count=0
                     backbone_score=0
 
-                if i == len(atomic_df.df['ATOM']) - 1:
+                if i == len(df) - 1:
                     scores[i] = score
                     backbone_scores[i] = score
 
-        atomic_df.df['ATOM']['b_factor'] = scores
-        atomic_df.to_pdb(filepath.split('.',1)[0] + '_avgbyres.pdb')
-        out += [[filepath.rsplit('.',1)[0] + '_avgbyres.pdb', min(scores), max(scores)]]
+        df[b_factor] = scores
+        if cifdata == 'pdb':
+            outname = filepath.split('.',1)[0] + '_avgbyres.pdb'
+            atomic_df.df['ATOM'] = df.copy()
+            atomic_df.to_pdb(outname)
+        else:
+            outname = filepath.split('.',1)[0] + '_avgbyres.cif'
+            df_to_cif(outname, df=df, cifdata=cifdata)
+        out += [[outname, min(scores), max(scores)]]
 
         if backbone:
-            atomic_df.df['ATOM']['b_factor'] = backbone_scores
-            atomic_df.to_pdb(filepath.split('.',1)[0] + '_avgbyresbb.pdb')
-            out += [[filepath.rsplit('.',1)[0] + '_avgbyresbb.pdb', min(backbone_scores), max(backbone_scores)]]
+            if cifdata == 'pdb':
+                outname = filepath.split('.',1)[0] + '_avgbyresbb.pdb'
+                atomic_df.df['ATOM'] = df.copy()
+                atomic_df.to_pdb(outname)
+            else:
+                outname = filepath.split('.',1)[0] + '_avgbyresbb.cif'
+                df_to_cif(outname, df=df, cifdata=cifdata)
+            out += [[outname, min(backbone_scores), max(backbone_scores)]]
 
     return out
     
@@ -678,21 +970,26 @@ def create_3_vectors(pdb_path: str, chain1: str | list, feature: str) -> dict[st
         (dict[str: numpy array]): A dict with three key-value pairs, one per assignment vector. 
             The key, a string, is used for future file naming and keeping track of which entries are in assignment vector 1, and therefore those that aren't in assignment vector 2. The key for the True/1 vector is tot.
     """    
-    atomic_df, _ = read_pdb_mmcif(filepath=pdb_path)
+    atomic_df, _, cifdata = read_pdb_mmcif(filepath=pdb_path)
 
-    out_tot = np.ones(len(atomic_df.df['ATOM']), dtype=bool)
+    if cifdata == 'pdb':
+        df = atomic_df.df['ATOM'].copy()
+    else:
+        df = atomic_df
+
+    out_tot = np.ones(len(df), dtype=bool)
 
     if type(chain1) == str:
-        out1 = np.array(atomic_df.df['ATOM'][feature].eq(chain1)).astype(bool)
+        out1 = np.array(df[feature].eq(chain1)).astype(bool)
         name = chain1
     elif type(chain1) == list:
         for ind, chain in enumerate(chain1):
             if ind == 0:
-                temp = atomic_df.df['ATOM'][feature].eq(chain)
+                temp = df[feature].eq(chain)
                 name = chain
             else:
                 name = name + '_' + chain
-                temp = temp | atomic_df.df['ATOM'][feature].eq(chain)
+                temp = temp | df[feature].eq(chain)
         out1 = np.array(temp).astype(bool)
 
     out2 = np.invert(out1)
@@ -713,18 +1010,24 @@ def create_vectors(pdb_path: str, include: str | list, feature: str) -> dict[str
     Returns:
         out (dict[str: numpy array]): A dict with one key-value pair. The name of what is included, as a string, is the key. The value is the assignment vector.
     """    
-    atomic_df, _ = read_pdb_mmcif(filepath=pdb_path)
+    atomic_df, _, cifdata = read_pdb_mmcif(filepath=pdb_path)
+
+    if cifdata == 'pdb':
+        df = atomic_df.df['ATOM'].copy()
+    else:
+        df = atomic_df
+
 
     if type(include) == str:
-        return {include: np.array(atomic_df.df['ATOM'][feature].eq(include)).astype(bool)}
+        return {include: np.array(df[feature].eq(include)).astype(bool)}
     elif type(include) == list:
         for ind, chain in enumerate(include):
             if ind == 0:
-                temp = atomic_df.df['ATOM'][feature].eq(chain)
+                temp = df[feature].eq(chain)
                 name = chain
             else:
                 name = name + '_' + chain
-                temp = temp | atomic_df.df['ATOM'][feature].eq(chain)
+                temp = temp | df[feature].eq(chain)
         return {name: temp}
     raise TypeError('Incorrect type for include. Must be string or list.')
 
@@ -867,9 +1170,17 @@ def score_v_localres(pdb_path: str,
 
         names = list(np.zeros(len(localres)).astype(int).astype(str))
 
-        atomic_df, _ = read_pdb_mmcif(filepath=pdb_path)
+        atomic_df, _, cifdata = read_pdb_mmcif(filepath=pdb_path)
 
-        df = atomic_df.df['ATOM'].set_index(['chain_id','residue_number', 'atom_name'])
+        if cifdata == 'pdb':
+            df = atomic_df.df['ATOM'].copy()
+            x_coord, y_coord, z_coord, b_factor = 'x_coord', 'y_coord', 'z_coord', 'b_factor'
+            atom_name, occupancy, residue_name, chain_id, residue_number = "atom_name", "occupancy", "residue_name", "chain_id", "residue_number"
+        else:
+            df = atomic_df
+            x_coord, y_coord, z_coord, b_factor = '_atom_site.Cartn_x', '_atom_site.Cartn_y', '_atom_site.Cartn_z', '_atom_site.B_iso_or_equiv'
+            atom_name, occupancy, residue_name, chain_id, residue_number = "_atom_site.label_atom_id", "_atom_site.occupancy", "_atom_site.label_comp_id", "_atom_site.label_asym_id", "_atom_site.label_seq_id"
+
 
         i=0
 
@@ -883,10 +1194,10 @@ def score_v_localres(pdb_path: str,
         for ind, row in localres.iterrows():
             if not backboneonly or ind.split('@')[1] in ['C', 'N', 'O', 'CA']:
                 try:
-                    if type(df.loc[(ind[1+k:2+k], int(ind[3+k:].split('@')[0])), 'b_factor'][ind[3+k:].split('@')[1]]) == pd.core.series.Series:
+                    if type(df.loc[(ind[1+k:2+k], int(ind[3+k:].split('@')[0])), b_factor][ind[3+k:].split('@')[1]]) == pd.core.series.Series:
                         errorcount+=1
                     else:
-                        out[i,0] = df.loc[(ind[1+k:2+k], int(ind[3+k:].split('@')[0])), 'b_factor'][ind[3+k:].split('@')[1]]
+                        out[i,0] = df.loc[(ind[1+k:2+k], int(ind[3+k:].split('@')[0])), b_factor][ind[3+k:].split('@')[1]]
                         out[i,1] = row['localres']
                         names[i] = ind
                         i+=1
@@ -1032,24 +1343,36 @@ def score_v_localres_plotly(pdb_path: str,
     # out = np.zeros((len(localres), 2))
     # names = list(np.zeros(len(localres)).astype(int).astype(str))
 
-    atomic_df, _ = read_pdb_mmcif(filepath=pdb_path, append_heteroatoms=append_heteroatoms)
+    atomic_df, _, cifdata = read_pdb_mmcif(filepath=pdb_path, append_heteroatoms=append_heteroatoms)
 
-    atomic_df.df['ATOM']['index'] = '/'+atomic_df.df["ATOM"]["chain_id"]+':'+atomic_df.df["ATOM"]["residue_number"].astype(str)+'@'+atomic_df.df["ATOM"]["atom_name"]
+    if cifdata == 'pdb':
+        df = atomic_df.df['ATOM'].copy()
+        x_coord, y_coord, z_coord, b_factor = 'x_coord', 'y_coord', 'z_coord', 'b_factor'
+        atom_name, chain_id, residue_number = "atom_name", "chain_id", "residue_number"
+    else:
+        df = atomic_df
+        x_coord, y_coord, z_coord, b_factor = '_atom_site.Cartn_x', '_atom_site.Cartn_y', '_atom_site.Cartn_z', '_atom_site.B_iso_or_equiv'
+        atom_name, chain_id, residue_number = "_atom_site.label_atom_id", "_atom_site.label_asym_id", "_atom_site.label_seq_id"
 
-    data = pd.concat([atomic_df.df['ATOM'].set_index('index'), localres], axis=1).drop(['charge', 'blank_1', 'alt_loc', 'blank_2', 'blank_3', 'insertion', 'blank_4', 'segment_id', 'element_symbol'], axis=1).dropna()
+    df['index'] = '/'+df[chain_id]+':'+df[residue_number].astype(str)+'@'+df[atom_name]
+
+    if cifdata == 'pdb':
+        data = pd.concat([df.set_index('index'), localres], axis=1).drop(['charge', 'blank_1', 'alt_loc', 'blank_2', 'blank_3', 'insertion', 'blank_4', 'segment_id', 'element_symbol'], axis=1).dropna()
+    else:
+        data = pd.concat([df.set_index('index'), localres], axis=1).dropna('all', axis=1).dropna()
 
     if only_chain:
-        data = data[(data['chain_id'].isin(only_chain))]
+        data = data[(data[chain_id].isin(only_chain))]
 
     if backboneonly:
-        data = data[(data['atom_name'].isin(['C', 'N', 'O', 'CA']))]
+        data = data[(data[atom_name].isin(['C', 'N', 'O', 'CA']))]
 
     fig = px.scatter(data, 
-                     x='b_factor', y='localres',
-                     hover_data={'b_factor':False, 
+                     x=b_factor, y='localres',
+                     hover_data={b_factor:False, 
                                  'localres':False, 
                                  'Atom':data.index,
-                                 'Score':data['b_factor'],
+                                 'Score':data[b_factor],
                                  'Local Res':data['localres']}
                      )
 
@@ -1085,26 +1408,37 @@ def visualize(pdb_path: str,
     Returns:
         fig (Figure): Plotly figure of atoms.
     """
-    atomic_df, _ = read_pdb_mmcif(filepath=pdb_path, append_heteroatoms=append_heteroatoms)
+    atomic_df, _, cifdata = read_pdb_mmcif(filepath=pdb_path, append_heteroatoms=append_heteroatoms)
+
+    if cifdata == 'pdb':
+        df = atomic_df.df['ATOM'].copy()
+        x_coord, y_coord, z_coord, b_factor = 'x_coord', 'y_coord', 'z_coord', 'b_factor'
+        atom_name, chain_id, residue_number = "atom_name", "chain_id", "residue_number"
+    else:
+        df = atomic_df
+        x_coord, y_coord, z_coord, b_factor = '_atom_site.Cartn_x', '_atom_site.Cartn_y', '_atom_site.Cartn_z', '_atom_site.B_iso_or_equiv'
+        atom_name, chain_id, residue_number = "_atom_site.label_atom_id", "_atom_site.label_asym_id", "_atom_site.label_seq_id"
+
+
 
     backbone_atoms = ['C', 'N', 'O', 'CA']
-    atomic_df.df['ATOM']["marker_size"] = atomic_df.df["ATOM"]["atom_name"].apply(
+    df['marker_size'] = df[atom_name].apply(
         lambda x: 4 if x in backbone_atoms else 2
     )
 
     fig = px.scatter_3d(
-        atomic_df.df["ATOM"],
-        x='x_coord', y='y_coord', z='z_coord',
-        hover_data={'x_coord':False, 
-                    'y_coord':False, 
-                    'z_coord':False, 
-                    'chain':atomic_df.df["ATOM"]['chain_id'],
-                    'Residue':atomic_df.df["ATOM"]['residue_number'],
-                    'Atom':atomic_df.df["ATOM"]['atom_name'],
+        df,
+        x=x_coord, y=y_coord, z=z_coord,
+        hover_data={x_coord:False, 
+                    y_coord:False, 
+                    z_coord:False, 
+                    'chain':df[chain_id],
+                    'Residue':df[residue_number],
+                    'Atom':df[atom_name],
                     'marker_size': False,
-                    'Score':atomic_df.df["ATOM"]['b_factor'],
-                    'b_factor':False},
-        color='b_factor',
+                    'Score':df[b_factor],
+                    b_factor:False},
+        color=b_factor,
         color_continuous_scale=[
             (0, '#ffffff'),
             (0.25, '#ffff00'),
@@ -1115,6 +1449,8 @@ def visualize(pdb_path: str,
         range_color=b_factor_range,
         size='marker_size'
     )
+
+    fig.update_layout(coloraxis_colorbar=dict(title="Solvent Exposure Score"))
 
     fig.update_traces(marker_line_width=0, marker=dict(opacity=1.0))
 
@@ -1162,8 +1498,11 @@ def features(pdb_path: str, feature: str, yn: 'function' = yes_no) -> list:
     Returns:
         out (list): A list of all unique entries under feature. Typically a list of strings, integers, or floats.
     """    
-    atomic_df, _ = read_pdb_mmcif(filepath=pdb_path, append_heteroatoms=yn)
-    return atomic_df.df['ATOM'][feature].drop_duplicates().tolist()
+    atomic_df, _, cifdata = read_pdb_mmcif(filepath=pdb_path, append_heteroatoms=yn)
+    if cifdata == 'pdb':
+        return atomic_df.df['ATOM'][feature].drop_duplicates().tolist()
+    else:
+        return atomic_df[feature].drop_duplicates().tolist()
 
 
 def reciprocal_ticks(mn: float,
@@ -1212,7 +1551,7 @@ def reciprocal_ticks(mn: float,
     return np.array(ticks)
 
 
-def max_n_for_full_matrix(fraction_of_avail: float = 0.5, dtype: type = np.float64) -> int:
+def max_n_for_full_matrix(fraction_of_avail: float = 0.6, dtype: type = np.float64) -> int:
     """
     Calculates size, n, of an n x n matrix with specified dtype that can be generated when using a specified fraction of available memory.
 
@@ -1229,5 +1568,24 @@ def max_n_for_full_matrix(fraction_of_avail: float = 0.5, dtype: type = np.float
     max_bytes = int(avail * fraction_of_avail)
     # n^2 * bytes_per_element <= max_bytes  ->  n <= sqrt(max_bytes/bytes_per_element)
     return int(math.floor(math.sqrt(max_bytes / bytes_per_element)))
+
+
+def max_len_for_full_matrix(fraction_of_avail: float = 0.6, dtype: type = np.float64) -> int:
+    """
+    Calculates length, n, of a 1 x [n*(n-1)/2] matrix with specified dtype that can be generated when using a specified fraction of available memory.
+    When running scipy.spatial.distance.pdist, this is the maximum number, n, of atoms that can be run without using up more than the fraction of available memory.
+
+    Args:
+        fraction_of_avail (float, optional): Maximum fraction of available memory to use for the matrix.
+        dtype (type): data type of matrix elements.
+
+    Returns:
+        (int): Size, n, of the largest n x n matrix to use, at maximum, the fraction of availale memory.
+    """
+    # fraction_of_avail: fraction of available RAM to use for the matrix
+    avail = psutil.virtual_memory().available
+    bytes_per_element = np.dtype(dtype).itemsize
+    max_bytes = int(avail * fraction_of_avail)
+    return int(math.floor((1 + math.sqrt(1+ 8 * max_bytes / bytes_per_element))/2))
 
 

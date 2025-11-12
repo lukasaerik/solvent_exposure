@@ -46,14 +46,13 @@ try:
 except Exception:
     QWebEngineProfile = None
 
-from PyQt6.QtCore import Qt, QObject, QThread, pyqtSignal, QEventLoop, QEvent, QUrl, QTimer
+from PyQt6.QtCore import Qt, QObject, QThread, pyqtSignal, QEventLoop, QEvent, QUrl
 from PyQt6.QtGui import QAction, QPalette, QStandardItem, QFontMetrics, QKeySequence
 from PyQt6.QtWidgets import (
     QApplication,
     QCheckBox,
     QComboBox,
     QFileDialog,
-    QFormLayout,
     QHBoxLayout,
     QLabel,
     QLineEdit,
@@ -488,7 +487,7 @@ class ScriptWorker(QObject):
 
             pre_out = preprocess(pdb_path=pdb_path, pre_path=pre_path, yn=self.yes_no)
             self.progress.emit('Preprocessing complete')
-            result = exposure(pdb_path=pre_out, out_path=out_path)
+            result = exposure(pdb_path=pre_out, out_path=out_path, progress_callback=self.progress.emit)
             if average:
                 tempresult = []
                 for i in result:
@@ -635,7 +634,7 @@ class MainWindow(QMainWindow):
         self.file_edit.setText(self.current_simple_settings.get('pdb_path', ''))
         self.file_browse = QPushButton('Browse...')
         self.file_browse.clicked.connect(self._browse_file)
-        file_row.addWidget(QLabel('PDB File:'))
+        file_row.addWidget(QLabel('PDB/mmCIF File:'))
         file_row.addWidget(self.file_edit)
         file_row.addWidget(self.file_browse)
         simple_form.addLayout(file_row)
@@ -716,7 +715,7 @@ class MainWindow(QMainWindow):
         self.adduct_file_edit.setText(self.current_adduct_settings.get('pdb_path', ''))
         self.adduct_file_browse = QPushButton('Browse...')
         self.adduct_file_browse.clicked.connect(self._browse_adduct_file)
-        adduct_file_row.addWidget(QLabel('PDB File:'))
+        adduct_file_row.addWidget(QLabel('PDB/mmCIF File:'))
         adduct_file_row.addWidget(self.adduct_file_edit)
         adduct_file_row.addWidget(self.adduct_file_browse)
         adduct_form.addLayout(adduct_file_row)
@@ -806,7 +805,7 @@ class MainWindow(QMainWindow):
         self.visuals_pdb_edit.setText(os.path.join(basedir, 'pdbs', 'out', '1u7g_2c50.pdb'))  # default
         self.visuals_browse = QPushButton('Browse...')
         self.visuals_browse.clicked.connect(self._browse_visuals_file)
-        controls_h.addWidget(QLabel('PDB:'))
+        controls_h.addWidget(QLabel('PDB/mmCIF:'))
         controls_h.addWidget(self.visuals_pdb_edit)
         controls_h.addWidget(self.visuals_browse)
 
@@ -855,7 +854,7 @@ class MainWindow(QMainWindow):
         self.plot_pdb_edit.setText(self.current_plot_settings.get('pdb_path', ''))
         self.plot_pdb_browse = QPushButton('Browse...')
         self.plot_pdb_browse.clicked.connect(self._browse_plot_file)
-        plot_pdb_row.addWidget(QLabel('PDB File:'))
+        plot_pdb_row.addWidget(QLabel('PDB/mmCIF File:'))
         plot_pdb_row.addWidget(self.plot_pdb_edit)
         plot_pdb_row.addWidget(self.plot_pdb_browse)
         plot_form.addLayout(plot_pdb_row)
@@ -1221,7 +1220,7 @@ class MainWindow(QMainWindow):
         self.worker.answer.emit(yn)
         
     def _browse_visuals_file(self):
-        fname, _ = QFileDialog.getOpenFileName(self, 'Select PDB or mmCIF', basedir, "PDB/CIF Files (*.pdb *.pdb.gz *.ent *.cif *.cif.gz)")
+        fname, _ = QFileDialog.getOpenFileName(self, 'Select PDB or mmCIF', basedir, "PDB/mmCIF Files (*.pdb *.pdb.gz *.ent *.cif *.cif.gz)")
         if fname:
             self.visuals_pdb_edit.setText(fname)
 
@@ -1266,7 +1265,7 @@ class MainWindow(QMainWindow):
 
         pdb_path = self.current_plot_settings.get('pdb_path')
         defattr_path = self.current_plot_settings.get('defattr_path')
-        only_chain = self.current_plot_settings.get('only_chain')
+        only_chain = self.current_plot_settingsf.get('only_chain')
         only_backbone = self.current_plot_settings.get('only_backbone')
 
         if not pdb_path:
