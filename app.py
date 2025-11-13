@@ -47,13 +47,15 @@ except Exception:
     QWebEngineProfile = None
 
 from PyQt6.QtCore import Qt, QObject, QThread, pyqtSignal, QEventLoop, QEvent, QUrl
-from PyQt6.QtGui import QAction, QPalette, QStandardItem, QFontMetrics, QKeySequence
+from PyQt6.QtGui import QAction, QPalette, QStandardItem, QStandardItemModel, QFontMetrics, QKeySequence
 from PyQt6.QtWidgets import (
     QApplication,
     QCheckBox,
     QComboBox,
+    QDoubleSpinBox,
     QFileDialog,
     QHBoxLayout,
+    QInputDialog,
     QLabel,
     QLineEdit,
     QMainWindow,
@@ -67,7 +69,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from funcs import preprocess, create_3_vectors, exposure, score_v_localres, features, average_score, visualize, score_v_localres_plotly, standard_residues
+from funcs import preprocess, create_3_vectors, exposure, score_v_localres, features, average_score, visualize, score_v_localres_plotly, standard_residues, available_scoring_functions
 
 basedir = os.path.dirname(__file__)
 
@@ -160,7 +162,6 @@ class CheckableComboBox(QComboBox):
         super().resizeEvent(event)
 
     def eventFilter(self, object, event):
-
         if object == self.lineEdit():
             if event.type() == QEvent.Type.MouseButtonRelease:
                 if self.closeOnLineEditClick:
@@ -238,6 +239,193 @@ class CheckableComboBox(QComboBox):
                 res.append(self.model().item(i).data())
         return res
 
+
+class CheckableAddComboBox(QComboBox):
+    ADD_ROW_ROLE = Qt.ItemDataRole.UserRole + 100   # a role reserved for the Add... flag
+    USER_DATA_ROLE = Qt.ItemDataRole.UserRole
+
+    class Delegate(QStyledItemDelegate):
+        def sizeHint(self, option, index):
+            size = super().sizeHint(option, index)
+            size.setHeight(20)
+            return size
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
+        self.setModel(QStandardItemModel(self))
+        self.setEditable(True)
+        self.lineEdit().setReadOnly(True)
+        self.lineEdit().setStyleSheet("color: black; background: white;")  # force visible text
+
+        self.setItemDelegate(CheckableAddComboBox.Delegate())
+
+        self._add_row_text = "➕ Add..."
+        self._has_add_row = False
+
+        self.model().dataChanged.connect(self.updateText)
+        self.model().rowsInserted.connect(self.updateText)
+        self.model().rowsRemoved.connect(self.updateText)
+
+        self.lineEdit().installEventFilter(self)
+        self.view().viewport().installEventFilter(self)
+        self.closeOnLineEditClick = False
+
+        self.updateText()
+
+    # ---------- Add-row management ----------
+    def ensureAddRow(self):
+        if self._has_add_row:
+            return
+        add_item = QStandardItem(self._add_row_text)
+        add_item.setFlags(Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable)
+        # mark *only* the add-row with this special role
+        add_item.setData(True, self.ADD_ROW_ROLE)
+        self.model().appendRow(add_item)
+        self._has_add_row = True
+
+    def removeAddRow(self):
+        if not self._has_add_row:
+            return
+        last = self.model().rowCount() - 1
+        if last >= 0:
+            self.model().removeRow(last)
+        self._has_add_row = False
+
+    # ---------- addItem (explicit roles) ----------
+    def addItem(self, text, data=None):
+        add_present = self._has_add_row
+        if add_present:
+            self.removeAddRow()
+
+        item = QStandardItem()
+        item.setText(text)  # display text
+        # store the user data explicitly in USER_DATA_ROLE
+        item.setData(text if data is None else data, self.USER_DATA_ROLE)
+        item.setFlags(Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsUserCheckable)
+        item.setData(Qt.CheckState.Unchecked, Qt.ItemDataRole.CheckStateRole)
+        # Ensure add-row role is not set on normal items:
+        # (we don't call item.setData(..., ADD_ROW_ROLE) here)
+        self.model().appendRow(item)
+
+        if add_present:
+            self.ensureAddRow()
+
+    def addItems(self, texts, datalist=None):
+        for i, text in enumerate(texts):
+            try:
+                data = datalist[i]
+            except (TypeError, IndexError):
+                data = None
+            self.addItem(text, data)
+
+    # ---------- eventFilter ----------
+    def eventFilter(self, obj, event):
+        if obj == self.lineEdit():
+            if event.type() == QEvent.Type.MouseButtonRelease:
+                if self.closeOnLineEditClick:
+                    self.hidePopup()
+                else:
+                    self.showPopup()
+                return True
+            return False
+
+        if obj == self.view().viewport():
+            if event.type() == QEvent.Type.MouseButtonRelease:
+                index = self.view().indexAt(event.pos())
+                if not index.isValid():
+                    return False
+
+                row = index.row()
+                item = self.model().item(row)
+                if item is None:
+                    return False
+
+                last_row = self.model().rowCount() - 1
+                is_add_row = self._has_add_row and (row == last_row)
+
+                if is_add_row:
+                    text, ok = QInputDialog.getText(self, "Add option", "New option:")
+                    if ok and text:
+                        self.removeAddRow()
+                        self.addItem(text)
+                        new_index = self.model().rowCount() - 1
+                        if new_index >= 0:
+                            self.model().item(new_index).setCheckState(Qt.CheckState.Checked)
+                        self.ensureAddRow()
+                        self.updateText()
+                    return True
+
+                if item.flags() & Qt.ItemFlag.ItemIsUserCheckable:
+                    item.setCheckState(
+                        Qt.CheckState.Unchecked
+                        if item.checkState() == Qt.CheckState.Checked
+                        else Qt.CheckState.Checked
+                    )
+                    self.updateText()
+                    return True
+
+                return False
+
+            return False
+
+        return super().eventFilter(obj, event)
+
+    def showPopup(self):
+        self.ensureAddRow()
+        super().showPopup()
+        self.closeOnLineEditClick = True
+        self.updateText()
+
+    def hidePopup(self):
+        super().hidePopup()
+        self.startTimer(100)
+        self.updateText()
+
+    def timerEvent(self, event):
+        self.killTimer(event.timerId())
+        self.closeOnLineEditClick = False
+
+    # ---------- updateText ----------
+    def updateText(self, *args, **kwargs):
+        selected_texts = []
+        row_count = self.model().rowCount()
+        for i in range(row_count):
+            item = self.model().item(i)
+            if item is None:
+                continue
+
+            # check *only* our explicit add-row role
+            is_add_row = bool(item.data(self.ADD_ROW_ROLE))
+            if is_add_row:
+                continue
+
+            state = item.checkState()
+            if state == Qt.CheckState.Checked:
+                selected_texts.append(item.text())
+
+        full_text = ', '.join(selected_texts)
+
+        self.lineEdit().setToolTip(full_text)
+        if self.view().isVisible():
+            metrics = QFontMetrics(self.lineEdit().font())
+            elided = metrics.elidedText(full_text, Qt.TextElideMode.ElideRight, self.lineEdit().width())
+            self.lineEdit().setText(elided)
+        else:
+            self.lineEdit().setText(full_text)
+
+    def currentData(self):
+        res = []
+        for i in range(self.model().rowCount()):
+            item = self.model().item(i)
+            if item is None:
+                continue
+            if bool(item.data(Qt.ItemDataRole.UserRole + 1)):
+                continue
+            if item.checkState() == Qt.CheckState.Checked:
+                res.append(item.text())
+        return res
+    
 
 class MplCanvas(FigureCanvas):
     '''Simple Matplotlib FigureCanvas to hold one Axes.'''
@@ -489,11 +677,11 @@ class ScriptWorker(QObject):
             self.progress.emit('Preprocessing complete')
             result = exposure(pdb_path=pre_out, out_path=out_path, progress_callback=self.progress.emit)
             if average:
+                self.progress.emit('Main calculation(s) complete.')
                 tempresult = []
                 for i in result:
-                    self.progress.emit(f'File {i[0]} saved. \n Min: {i[1]:.2f} \n Max: {i[2]:.2f}')
                     tempresult += average_score(i[0], backbone=backbone)
-                result = tempresult
+                result += tempresult
 
             self.finished.emit(result)
         except Exception as e:
@@ -535,11 +723,11 @@ class ScriptWorker(QObject):
             assignment = create_3_vectors(pdb_path=pdb_path, chain1=combo, feature=feature)
             result = exposure(pdb_path=pdb_path, out_path=out_path, assignment=assignment)
             if average:
+                self.progress.emit('Main calculation(s) complete.')
                 tempresult = []
                 for i in result:
-                    self.progress.emit(f'File {i[0]} saved. \n Min: {i[1]:.2f} \n Max: {i[2]:.2f}')
                     tempresult += average_score(i[0], backbone=backbone)
-                result = tempresult
+                result += tempresult
 
             self.finished.emit(result)
         except Exception as e:
@@ -558,6 +746,51 @@ class ScriptWorker(QObject):
             only_backbone = settings.get('only_backbone')
 
             result = score_v_localres(pdb_path=pdb_path, defattr_path=defattr_path, only_chain=only_chain, called_by_GUI=True, backboneonly=only_backbone, inverse=True)
+            self.finished.emit(result)
+        except Exception as e:
+            self.error.emit(str(e))
+
+    def run_manual_preprocessing(self):
+        '''
+        Script which runs custom preprocessing.
+        '''
+        self.started.emit()
+        try:
+            settings = self.settings
+            pdb_path = settings.get('preprocess_file_path')
+            pre_path = settings.get('preprocess_folder_path')
+            include = settings.get('preprocess_include_selected')
+            redefine_chains = settings.get('preprocess_redefine_chains')
+
+            result = preprocess(pdb_path=pdb_path, pre_path=pre_path, yn=self.yes_no, include=include, redefine_chains=redefine_chains)
+            self.finished.emit(result)
+        except Exception as e:
+            self.error.emit(str(e))
+
+    def run_manual_calculation(self):
+        '''
+        Script which runs custom solvent exposure calculation
+        '''
+        self.started.emit()
+        try:
+            settings = self.settings
+            pdb_path = settings.get('preprocessed_path_calculate')
+            out_path = settings.get('calculate_folder_path')
+            if settings.get('calculate_assignment'):
+                assignment = settings.get('assignment_vectors')
+            else:
+                assignment = None
+            average = settings.get('average')
+            backbone = settings.get('backbone')
+            funcs = settings.get('funcs')
+            
+            result = exposure(pdb_path=pdb_path, out_path=out_path, assignment=assignment, funcs=funcs, progress_callback=self.progress.emit)
+            if average:
+                self.progress.emit('Main calculation(s) complete.')
+                tempresult = []
+                for i in result:
+                    tempresult += average_score(i[0], backbone=backbone)
+                result += tempresult
             self.finished.emit(result)
         except Exception as e:
             self.error.emit(str(e))
@@ -598,6 +831,7 @@ class MainWindow(QMainWindow):
         '''
         super().__init__()
         self.setWindowTitle('Solvent Exposure Calculation')
+        self.resize(600, 800)
         file_menu = self.menuBar().addMenu('&File')
         close_action = QAction('Close', self)
         close_action.setShortcut(QKeySequence(QKeySequence.StandardKey.Close))  
@@ -606,6 +840,8 @@ class MainWindow(QMainWindow):
         file_menu.addAction(close_action)
         self.addAction(close_action)
 
+        self.enable_disable = []
+        
         # Set up Tabs
         tabs = QTabWidget()
         tabs.setTabPosition(QTabWidget.TabPosition.North)
@@ -683,6 +919,7 @@ class MainWindow(QMainWindow):
         # Bottom: Run Button
         self.run_simple = QPushButton('Calculate')
         self.run_simple.clicked.connect(self.on_run_simple_clicked)
+        self.enable_disable.append(self.run_simple)
         simple_form.addWidget(self.run_simple)
 
         # Add to tab
@@ -746,6 +983,7 @@ class MainWindow(QMainWindow):
         # Preprocess/feature Run Button
         self.run_adduct_pre = QPushButton('Preprocess')
         self.run_adduct_pre.clicked.connect(self.on_run_adduct_pre_clicked)
+        self.enable_disable.append(self.run_adduct_pre)
         adduct_form.addWidget(self.run_adduct_pre)
 
         # Combo selector
@@ -766,7 +1004,7 @@ class MainWindow(QMainWindow):
         adduct_folder_out_row.addWidget(self.adduct_folder_out_browse)
         adduct_form.addLayout(adduct_folder_out_row)
 
-        # Average checkbox
+        # Average checkboxes
         adduct_average_row = QHBoxLayout()
         self.adduct_average_checkbox = QCheckBox('Average output per residue?')
         self.adduct_average_checkbox.setChecked(self.adduct_average)
@@ -781,6 +1019,7 @@ class MainWindow(QMainWindow):
         # Bottom: Run Button
         self.run_adduct_out = QPushButton('Calculate')
         self.run_adduct_out.clicked.connect(self.on_run_adduct_out_clicked)
+        self.enable_disable.append(self.run_adduct_out)
         adduct_form.addWidget(self.run_adduct_out)
 
         # Output text box
@@ -812,6 +1051,7 @@ class MainWindow(QMainWindow):
         # Render / Open controls
         render_h = QHBoxLayout()
         self.visuals_render_btn = QPushButton('Render')
+        self.enable_disable.append(self.visuals_render_btn)
         render_h.addWidget(self.visuals_render_btn)
 
         visuals_layout.addLayout(controls_h)
@@ -887,6 +1127,7 @@ class MainWindow(QMainWindow):
 
         # Plot button
         self.run_plot = QPushButton('Plot')
+        self.enable_disable.append(self.run_plot)
         plot_form.addWidget(self.run_plot)
 
         if WEBENGINE_AVAILABLE:
@@ -918,7 +1159,244 @@ class MainWindow(QMainWindow):
         ###
         # Manual Tab
         ###
-        tabs.addTab(QLabel('not yet implemented'), 'Manual')
+        manual_tot = QWidget()
+        manual_form = QVBoxLayout()
+        manual = QTabWidget()
+        manual.setTabPosition(QTabWidget.TabPosition.West)
+        manual.setMovable(False)
+
+        self.current_manual_settings = {
+            'preprocess_file_path': os.path.join(basedir, 'pdbs', 'in', '1u7g.pdb'),
+            'preprocess_folder_path': os.path.join(basedir, 'pdbs', 'preprocessed'),
+            'preprocess_include_options': ['C', 'N', 'O', 'S'],
+            'preprocess_include_selected':['C', 'N', 'O', 'S'],
+            'preprocess_redefine_chains': False,
+            'preprocessed_path_assignment': '',
+            'assignment_vectors': None,
+            'preprocessed_path_calculate': '',
+            'calculate_folder_path': os.path.join(basedir, 'pdbs', 'out'),
+            'function_types': ['Power', 'Power2'],
+            'function_selected': 'Power',
+            'calculate_assignment': True,
+            'average': True,
+            'backbone': False,
+        }
+        self.current_manual_settings['function'] = available_scoring_functions[self.current_manual_settings.get('function_selected')]
+
+        self.preprocess_redefine_chains = False
+        self.calculate_assignment = True
+        self.calculate_average = True
+        self.calculate_backbone = False
+
+
+        ###
+        # Manual Preprocessing
+        ###
+        manual_preprocess = QWidget()
+        manual_preprocess_form = QVBoxLayout()
+
+        # PDB file selection
+        manual_preprocess_file_row = QHBoxLayout()
+        self.manual_preprocess_file_edit = QLineEdit()
+        self.manual_preprocess_file_edit.setText(self.current_manual_settings.get('preprocess_file_path', ''))
+        self.manual_preprocess_file_browse = QPushButton('Browse...')
+        self.manual_preprocess_file_browse.clicked.connect(self._browse_manual_preprocess_file)
+        manual_preprocess_file_row.addWidget(QLabel('PDB/mmCIF File:'))
+        manual_preprocess_file_row.addWidget(self.manual_preprocess_file_edit)
+        manual_preprocess_file_row.addWidget(self.manual_preprocess_file_browse)
+        manual_preprocess_form.addLayout(manual_preprocess_file_row)
+
+        # Folder selection
+        manual_preprocess_folder_row = QHBoxLayout()
+        self.manual_preprocess_folder_edit = QLineEdit()
+        self.manual_preprocess_folder_edit.setText(self.current_manual_settings.get('preprocess_folder_path', ''))
+        self.manual_preprocess_folder_browse = QPushButton('Browse...')
+        self.manual_preprocess_folder_browse.clicked.connect(self._browse_manual_preprocess_folder)
+        manual_preprocess_folder_row.addWidget(QLabel('Preprocessed Folder:'))
+        manual_preprocess_folder_row.addWidget(self.manual_preprocess_folder_edit)
+        manual_preprocess_folder_row.addWidget(self.manual_preprocess_folder_browse)
+        manual_preprocess_form.addLayout(manual_preprocess_folder_row)
+
+        # Included atoms selection
+        preprocess_include_row = QHBoxLayout()
+        preprocess_include_row.addWidget(QLabel('Include atoms which start with:'))
+        self.preprocess_include_combo = CheckableAddComboBox()
+        self.preprocess_include_combo.addItems(self.current_manual_settings.get('preprocess_include_options', ['C', 'N', 'O', 'S']))
+        self.preprocess_include_combo.ensureAddRow()
+        for i in range(self.preprocess_include_combo.model().rowCount()-1):
+            if self.preprocess_include_combo.model().item(i).text() in self.current_manual_settings.get('preprocess_include_selected', ['C', 'N', 'O', 'S']):
+                self.preprocess_include_combo.model().item(i).setCheckState(Qt.CheckState.Checked)
+        preprocess_include_row.addWidget(self.preprocess_include_combo)
+        manual_preprocess_form.addLayout(preprocess_include_row)
+
+        # Relabel chains checkbox
+        self.preprocess_redefine_chains_checkbox = QCheckBox('Relabel chains alphabetically?')
+        self.preprocess_redefine_chains_checkbox.setChecked(self.preprocess_redefine_chains)
+        self.preprocess_redefine_chains_checkbox.stateChanged.connect(self._on_preprocess_redefine_chains_toggled)
+        manual_preprocess_form.addWidget(self.preprocess_redefine_chains_checkbox)
+
+        # Preprocess button
+        self.run_manual_preprocess = QPushButton('Preprocess')
+        self.run_manual_preprocess.clicked.connect(self.on_run_manual_preprocess_clicked)
+        self.enable_disable.append(self.run_manual_preprocess)
+        manual_preprocess_form.addWidget(self.run_manual_preprocess)
+
+        manual_preprocess.setLayout(manual_preprocess_form)
+        manual.addTab(manual_preprocess, 'Preprocess')
+
+        ###
+        # Manual Assignment Vector Creation
+        ###
+        manual_assignment = QWidget()
+        manual_assignment_form = QVBoxLayout()
+
+        # Reset Button
+        self.manual_assignment_reset = QPushButton('Reset Assignment Vectors')
+        self.manual_assignment_reset.clicked.connect(self.on_manual_assignment_reset_clicked)
+        self.enable_disable.append(self.manual_assignment_reset)
+        manual_assignment_form.addWidget(self.manual_assignment_reset)
+
+        # Vector Creation options
+        assignment_creation_tabs = QTabWidget()
+        assignment_creation_tabs.setTabPosition(QTabWidget.TabPosition.North)
+        assignment_creation_tabs.setMovable(False)
+
+        assignment_creation_tabs.addTab(QLabel('Single vector'), 'Single Vector')
+
+        assignment_creation_tabs.addTab(QLabel('Three vectors'), 'Three Vectors')
+
+        assignment_creation_tabs.addTab(QLabel('Weighted vector'), 'Weighted Vector')
+
+        manual_assignment_form.addWidget(assignment_creation_tabs)
+
+        manual_assignment.setLayout(manual_assignment_form)
+        manual.addTab(manual_assignment, 'Assignment Vectors')
+        
+        ###
+        # Manual Exposure Calculation
+        ###
+        manual_calculate = QWidget()
+        self.manual_calculate_form = QVBoxLayout()
+
+        # PDB file selection
+        manual_calculate_file_row = QHBoxLayout()
+        self.manual_calculate_file_edit = QLineEdit()
+        self.manual_calculate_file_edit.setText(self.current_manual_settings.get('preprocessed_path_calculate', ''))
+        self.manual_calculate_file_browse = QPushButton('Browse...')
+        self.manual_calculate_file_browse.clicked.connect(self._browse_manual_calculate_file)
+        manual_calculate_file_row.addWidget(QLabel('PDB/mmCIF File:'))
+        manual_calculate_file_row.addWidget(self.manual_calculate_file_edit)
+        manual_calculate_file_row.addWidget(self.manual_calculate_file_browse)
+        self.manual_calculate_form.addLayout(manual_calculate_file_row)
+
+        # Folder selection
+        manual_calculate_folder_row = QHBoxLayout()
+        self.manual_calculate_folder_edit = QLineEdit()
+        self.manual_calculate_folder_edit.setText(self.current_manual_settings.get('calculate_folder_path', ''))
+        self.manual_calculate_folder_browse = QPushButton('Browse...')
+        self.manual_calculate_folder_browse.clicked.connect(self._browse_manual_calculate_folder)
+        manual_calculate_folder_row.addWidget(QLabel('Preprocessed Folder:'))
+        manual_calculate_folder_row.addWidget(self.manual_calculate_folder_edit)
+        manual_calculate_folder_row.addWidget(self.manual_calculate_folder_browse)
+        self.manual_calculate_form.addLayout(manual_calculate_folder_row)
+
+        # Scoring Function
+        self.functions = {}
+        self.manual_functions_widget = QWidget()
+        self.manual_functions = QVBoxLayout()
+        self.manual_functions_widget.setLayout(self.manual_functions)
+
+        m = QWidget()
+        m.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
+        manual_function = QHBoxLayout()
+        function_type_col = QVBoxLayout()
+        label = QLabel('Function Type')
+        label.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
+        function_type_col.addWidget(label)
+        combo = QComboBox()
+        combo.addItems(self.current_manual_settings.get('function_types'))
+        combo.currentIndexChanged.connect(lambda _, w=m: self._on_manual_reset_row(w, 0))
+        op = self.current_manual_settings.get('function_selected', 'Power')
+        idx = combo.findText(op)
+        if idx>=0:
+            combo.setCurrentIndex(idx)
+        function_type_col.addWidget(combo)
+        manual_function.addLayout(function_type_col)
+        self.functions[0] = {'function': combo}
+
+        self.manual_function_values = {}
+        for constant, cvalue in self.current_manual_settings.get('function')['constants'].items():
+            function_value_col = QVBoxLayout()
+            label = QLabel(constant)
+            label.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
+            function_value_col.addWidget(label)
+            value = QDoubleSpinBox()
+            value.setValue(cvalue)
+            function_value_col.addWidget(value)
+            manual_function.addLayout(function_value_col)
+            self.functions[0][constant] = value
+
+        function_max_score_col = QVBoxLayout()
+        label=QLabel('Max Score')
+        label.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
+        function_max_score_col.addWidget(label)
+        max_score = QDoubleSpinBox()
+        max_score.setValue(self.current_manual_settings.get('function').get('max_score', 0))
+        function_max_score_col.addWidget(max_score)
+        manual_function.addLayout(function_max_score_col)
+        self.functions[0]['max_score'] = max_score
+
+        button_col = QVBoxLayout()
+        reset_row_button = QPushButton('Reset Row')
+        reset_row_button.clicked.connect(lambda _, w=m: self._on_manual_reset_row(w, 0))
+        button_col.addWidget(reset_row_button)
+        add_row_button = QPushButton('Add Function')
+        add_row_button.clicked.connect(self._on_manual_add_row)
+        button_col.addWidget(add_row_button)
+        manual_function.addLayout(button_col)
+        m.setLayout(manual_function)
+
+        self.manual_functions.addWidget(m)
+
+        self.manual_functions_widget.setLayout(self.manual_functions)
+
+        self.manual_calculate_form.addWidget(self.manual_functions_widget)
+
+        # Checkboxes
+        manual_calculate_check_row = QHBoxLayout()
+        self.calculate_assignment_checkbox = QCheckBox('Use generated assignment vectors?')
+        self.calculate_assignment_checkbox.setChecked(self.calculate_assignment)
+        self.calculate_assignment_checkbox.stateChanged.connect(self._on_calculate_assignment_toggled)
+        manual_calculate_check_row.addWidget(self.calculate_assignment_checkbox)
+        self.calculate_average_checkbox = QCheckBox('Average output per residue?')
+        self.calculate_average_checkbox.setChecked(self.calculate_average)
+        self.calculate_average_checkbox.stateChanged.connect(self._on_calculate_average_toggled)
+        manual_calculate_check_row.addWidget(self.calculate_average_checkbox)
+        self.calculate_backbone_checkbox = QCheckBox('Also average only by backbone?')
+        self.calculate_backbone_checkbox.setChecked(self.calculate_backbone)
+        self.calculate_backbone_checkbox.stateChanged.connect(self._on_calculate_backbone_toggled)
+        manual_calculate_check_row.addWidget(self.calculate_backbone_checkbox)
+        self.manual_calculate_form.addLayout(manual_calculate_check_row)
+
+        # Calculate button
+        self.run_manual_calculate = QPushButton('Calculate')
+        self.run_manual_calculate.clicked.connect(self.on_run_manual_calculate_clicked)
+        self.enable_disable.append(self.run_manual_calculate)
+        self.manual_calculate_form.addWidget(self.run_manual_calculate)
+
+        manual_calculate.setLayout(self.manual_calculate_form)
+        manual.addTab(manual_calculate, 'Exposure Calculation')
+
+
+        manual_form.addWidget(manual)
+
+        self.manual_output = QTextEdit()
+        self.manual_output.setReadOnly(True)
+        self.manual_output.setPlaceholderText('Results will appear here...')
+        manual_form.addWidget(self.manual_output)
+
+        manual_tot.setLayout(manual_form)
+        tabs.addTab(manual_tot, 'Manual')
 
         self.setCentralWidget(tabs)
 
@@ -1265,7 +1743,7 @@ class MainWindow(QMainWindow):
 
         pdb_path = self.current_plot_settings.get('pdb_path')
         defattr_path = self.current_plot_settings.get('defattr_path')
-        only_chain = self.current_plot_settingsf.get('only_chain')
+        only_chain = self.current_plot_settings.get('only_chain')
         only_backbone = self.current_plot_settings.get('only_backbone')
 
         if not pdb_path:
@@ -1323,6 +1801,331 @@ class MainWindow(QMainWindow):
         # load as file URL so a fresh document is created
         self.plot_view.setUrl(QUrl.fromLocalFile(path))
 
+    def _browse_manual_preprocess_file(self):
+        fname, _ = QFileDialog.getOpenFileName(self, 'Select file', self.manual_preprocess_file_edit.text() or '', 'All Files (*)')
+        if fname:
+            self.manual_preprocess_file_edit.setText(fname)
+
+    def _browse_manual_preprocess_folder(self):
+        folder = QFileDialog.getExistingDirectory(self, 'Select folder', self.manual_preprocess_folder_edit.text() or '')
+        if folder:
+            self.manual_preprocess_folder_edit.setText(folder)
+
+    def _on_preprocess_redefine_chains_toggled(self, state):
+        self.preprocess_redefine_chains = bool(state)
+        self.current_manual_settings['preprocess_redefine_chains'] = self.preprocess_redefine_chains
+
+    def on_run_manual_preprocess_clicked(self):
+        # gather values
+        updated_settings = self.get_manual_settings()
+        for k in updated_settings:
+            self.current_manual_settings[k] = updated_settings.get(k)
+
+        # disable run button while running
+        self.manual_preprocess_file_browse.setEnabled(False)
+        self.manual_preprocess_folder_browse.setEnabled(False)
+        self.preprocess_include_combo.setEnabled(False)
+        self.preprocess_redefine_chains_checkbox.setEnabled(False)
+        for b in self.enable_disable:
+            b.setEnabled(False)
+
+        # create worker & thread
+        self.thread = QThread()
+        self.worker = ScriptWorker(settings=self.current_manual_settings.copy())
+        self.worker.moveToThread(self.thread)
+
+        # connect signals
+        self.thread.started.connect(self.worker.run_manual_preprocessing)
+        self.worker.progress.connect(self.manual_output.append)
+        self.worker.finished.connect(self.on_worker_manual_preprocess_finished)
+        self.worker.error.connect(self.on_worker_manual_preprocess_error)
+        self.worker.finished.connect(self.thread.quit)
+        self.worker.finished.connect(self.worker.deleteLater)
+        self.thread.finished.connect(self.thread.deleteLater)
+        self.worker.ask.connect(self._on_worker_ask_question)
+
+        # start the thread
+        self.thread.start()
+
+    def on_worker_manual_preprocess_finished(self, result):
+        # re-enable run button
+        self.manual_preprocess_file_browse.setEnabled(True)
+        self.manual_preprocess_folder_browse.setEnabled(True)
+        self.preprocess_include_combo.setEnabled(True)
+        self.preprocess_redefine_chains_checkbox.setEnabled(True)
+        for b in self.enable_disable:
+            b.setEnabled(True)
+        self.current_manual_settings['preprocessed_path_assignment'] = result
+        self.current_manual_settings['preprocessed_path_calculate'] = result
+        self.manual_calculate_file_edit.setText(result)
+        self.manual_output.append(f"Preprocessing complete. File {result} saved.")
+
+    def on_worker_manual_preprocess_error(self, err_str):
+        self.manual_preprocess_file_browse.setEnabled(True)
+        self.manual_preprocess_folder_browse.setEnabled(True)
+        self.preprocess_include_combo.setEnabled(True)
+        self.preprocess_redefine_chains_checkbox.setEnabled(True)
+        for b in self.enable_disable:
+            b.setEnabled(True)
+        QMessageBox.critical(self, 'Script error', f'An error occurred:\n{err_str}')
+
+
+
+    def on_manual_assignment_reset_clicked(self):
+        dlg = QMessageBox(self)
+        dlg.setWindowTitle('User Input Required')
+        dlg.setText('Are you sure you want to reset all assignment vectors?\nThis cannot be undone.')
+        dlg.setStandardButtons(QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+        dlg.setDefaultButton(QMessageBox.StandardButton.Yes)
+        dlg.setIcon(QMessageBox.Icon.Question)
+        button = dlg.exec()
+        yn = (button == QMessageBox.StandardButton.Yes)
+        if yn:
+            self.current_manual_settings['assignment_vectors'] = None
+
+
+
+
+    def _browse_manual_calculate_file(self):
+        fname, _ = QFileDialog.getOpenFileName(self, 'Select file', self.manual_calculate_file_edit.text() or '', 'All Files (*)')
+        if fname:
+            self.manual_calculate_file_edit.setText(fname)
+
+    def _browse_manual_calculate_folder(self):
+        folder = QFileDialog.getExistingDirectory(self, 'Select folder', self.manual_calculate_folder_edit.text() or '')
+        if folder:
+            self.manual_calculate_folder_edit.setText(folder)
+
+    def _on_calculate_assignment_toggled(self, state):
+        self.calculate_assignment = bool(state)
+        self.current_manual_settings['calculate_assignment'] = self.calculate_assignment
+
+    def _on_calculate_average_toggled(self, state):
+        self.calculate_average = bool(state)
+        self.current_manual_settings['average'] = self.calculate_average
+
+    def _on_calculate_backbone_toggled(self, state):
+        self.calculate_backbone = bool(state)
+        self.current_manual_settings['backbone'] = self.calculate_backbone
+
+    def _on_manual_remove_row(self, widget, index):
+        if widget is not None:
+            # Remove it from the layout and delete it
+
+            self.manual_functions.removeWidget(widget)
+            widget.deleteLater()
+
+    def _on_manual_reset_row(self, widget, index):
+        if widget is not None:
+            
+            containing_layout = widget.parent().layout()
+
+            op = self.functions[index]['function'].currentText()
+
+            m = QWidget()
+            m.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
+            # containing_layout.replaceWidget(widget, m)
+            manual_function = QHBoxLayout()
+            function_type_col = QVBoxLayout()
+            label = QLabel('Function Type')
+            label.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
+            function_type_col.addWidget(label)
+            combo = QComboBox()
+            combo.addItems(self.current_manual_settings.get('function_types'))
+            combo.activated.connect(lambda _, w=m, i=index: self._on_manual_reset_row(w,i))
+            idx = combo.findText(op)
+            if idx>=0:
+                combo.setCurrentIndex(idx)
+            function_type_col.addWidget(combo)
+            manual_function.addLayout(function_type_col)
+            self.functions[index] = {'function': combo}
+
+            self.manual_function_values = {}
+            for constant, cvalue in available_scoring_functions.get(op)['constants'].items():
+                function_value_col = QVBoxLayout()
+                label = QLabel(constant)
+                label.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
+                function_value_col.addWidget(label)
+                value = QDoubleSpinBox()
+                value.setValue(cvalue)
+                function_value_col.addWidget(value)
+                manual_function.addLayout(function_value_col)
+                self.functions[index][constant] = value
+
+            function_max_score_col = QVBoxLayout()
+            label=QLabel('Max Score')
+            label.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
+            function_max_score_col.addWidget(label)
+            max_score = QDoubleSpinBox()
+            max_score.setValue(available_scoring_functions.get(op).get('max_score', 0))
+            function_max_score_col.addWidget(max_score)
+            manual_function.addLayout(function_max_score_col)
+            self.functions[index]['max_score'] = max_score
+
+            button_col = QVBoxLayout()
+            reset_row_button = QPushButton('Reset Row')
+            reset_row_button.clicked.connect(lambda _, w=m, i=index: self._on_manual_reset_row(w,i))
+            button_col.addWidget(reset_row_button)
+            if index == 0:
+                add_row_button = QPushButton('Add Function')
+                add_row_button.clicked.connect(self._on_manual_add_row)
+                button_col.addWidget(add_row_button)
+            else:
+                remove_row_button = QPushButton('Remove Function')
+                remove_row_button.clicked.connect(lambda _, w=m, i=index: self._on_manual_remove_row(w, i))
+                button_col.addWidget(remove_row_button)
+            manual_function.addLayout(button_col)
+            m.setLayout(manual_function)
+
+            containing_layout.replaceWidget(widget, m)
+            self._on_manual_remove_row(widget, index)
+
+
+    def _on_manual_add_row(self):
+        index = self.manual_functions.count()
+
+        m = QWidget()
+        m.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
+        manual_function = QHBoxLayout()
+        function_type_col = QVBoxLayout()
+        label = QLabel('Function Type')
+        label.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
+        function_type_col.addWidget(label)
+        combo = QComboBox()
+        combo.addItems(self.current_manual_settings.get('function_types'))
+        combo.currentIndexChanged.connect(lambda _, w=m, i=index: self._on_manual_reset_row(w,i))
+        op = self.current_manual_settings.get('function_selected', 'Power')
+        idx = combo.findText(op)
+        if idx>=0:
+            combo.setCurrentIndex(idx)
+        function_type_col.addWidget(combo)
+        manual_function.addLayout(function_type_col)
+        self.functions[index] = {'function': combo}
+
+        self.manual_function_values = {}
+        for constant, cvalue in self.current_manual_settings.get('function')['constants'].items():
+            function_value_col = QVBoxLayout()
+            label = QLabel(constant)
+            label.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
+            function_value_col.addWidget(label)
+            value = QDoubleSpinBox()
+            value.setValue(cvalue)
+            function_value_col.addWidget(value)
+            manual_function.addLayout(function_value_col)
+            self.functions[index][constant] = value
+
+        function_max_score_col = QVBoxLayout()
+        label=QLabel('Max Score')
+        label.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
+        function_max_score_col.addWidget(label)
+        max_score = QDoubleSpinBox()
+        max_score.setValue(self.current_manual_settings.get('function').get('max_score', 0))
+        function_max_score_col.addWidget(max_score)
+        manual_function.addLayout(function_max_score_col)
+        self.functions[index]['max_score'] = max_score
+
+        button_col = QVBoxLayout()
+        reset_row_button = QPushButton('Reset Row')
+        reset_row_button.clicked.connect(lambda _, w=m, i=index: self._on_manual_reset_row(w,i))
+        button_col.addWidget(reset_row_button)
+        remove_row_button = QPushButton('Remove Function')
+        remove_row_button.clicked.connect(lambda _, w=m, i=index: self._on_manual_remove_row(w,i))
+        button_col.addWidget(remove_row_button)
+        manual_function.addLayout(button_col)
+        m.setLayout(manual_function)
+
+        self.manual_functions.insertWidget(index, m)
+
+    def on_run_manual_calculate_clicked(self):
+        # gather values
+        updated_settings = self.get_manual_settings()
+        for k in updated_settings:
+            self.current_manual_settings[k] = updated_settings.get(k)
+        
+        if self.current_manual_settings.get('preprocessed_path_calculate') == '':
+            self.manual_output.append('No pdb/cif file selected.')
+
+        else:
+            # disable run button while running
+            self.manual_calculate_file_browse.setEnabled(False)
+            self.manual_calculate_folder_browse.setEnabled(False)
+            self.calculate_assignment_checkbox.setEnabled(False)
+            for b in self.enable_disable:
+                b.setEnabled(False)
+
+            # create worker & thread
+            self.thread = QThread()
+            self.worker = ScriptWorker(settings=self.current_manual_settings.copy())
+            self.worker.moveToThread(self.thread)
+
+            # connect signals
+            self.thread.started.connect(self.worker.run_manual_calculation)
+            self.worker.progress.connect(self.manual_output.append)
+            self.worker.finished.connect(self.on_worker_manual_calculate_finished)
+            self.worker.error.connect(self.on_worker_manual_calculate_error)
+            self.worker.finished.connect(self.thread.quit)
+            self.worker.finished.connect(self.worker.deleteLater)
+            self.thread.finished.connect(self.thread.deleteLater)
+            self.worker.ask.connect(self._on_worker_ask_question)
+
+            # start the thread
+            self.thread.start()
+
+    def on_worker_manual_calculate_finished(self, result):
+        # re-enable run button
+        self.manual_calculate_file_browse.setEnabled(True)
+        self.manual_calculate_folder_browse.setEnabled(True)
+        self.calculate_assignment_checkbox.setEnabled(True)
+        for b in self.enable_disable:
+            b.setEnabled(True)
+        for i in result:
+            self.manual_output.append(f'File {i[0]} saved. \n Min: {i[1]:.2f} \n Max: {i[2]:.2f}')
+        self.visuals_pdb_edit.setText(f'{result[0][0]}')
+        self._render_embed()
+
+    def on_worker_manual_calculate_error(self, err_str):
+        self.manual_calculate_file_browse.setEnabled(True)
+        self.manual_calculate_folder_browse.setEnabled(True)
+        self.calculate_assignment_checkbox.setEnabled(True)
+        for b in self.enable_disable:
+            b.setEnabled(True)
+        QMessageBox.critical(self, 'Script error', f'An error occurred:\n{err_str}')
+
+
+
+
+
+    def get_manual_settings(self):
+        f = []
+        for i in range(self.manual_functions.count()):
+            tempconstants = {}
+            for key, value in self.functions[i].items():
+                if key == 'function':
+                    temp = available_scoring_functions[value.currentText()].copy()
+                elif key == 'max_score':
+                    temp[key] = float(value.text())
+                elif float(value.text()) % 1 == 0:
+                    tempconstants[key] = int(float(value.text()))
+                else:
+                    tempconstants[key] = float(value.text())
+            temp['constants'] = tempconstants.copy()
+            f.append(temp.copy())
+
+
+        return {
+            'preprocess_file_path': self.manual_preprocess_file_edit.text(),
+            'preprocess_folder_path': self.manual_preprocess_folder_edit.text(),
+            'preprocess_include_selected': self.preprocess_include_combo.currentData(),
+            'preprocess_redefine_chains': self.preprocess_redefine_chains,
+            'preprocessed_path_assignment': '',
+            'preprocessed_path_calculate': self.manual_calculate_file_edit.text(),
+            'calculate_folder_path': self.manual_calculate_folder_edit.text(),
+            'calculate_assignment': self.calculate_assignment,
+            'average': self.calculate_average,
+            'backbone': self.calculate_backbone,
+            'funcs': f,
+        }
+
     def get_simple_settings(self):
         # Return a dict of settings
         return {
@@ -1341,7 +2144,7 @@ class MainWindow(QMainWindow):
             'feature': self.adduct_feature.currentText(),
             'combo': self.combo.currentData(),
             'average': self.adduct_average,
-            'backbone': self.simple_backbone,
+            'backbone': self.adduct_backbone,
         }
     
     def get_plot_settings(self):

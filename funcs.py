@@ -138,6 +138,15 @@ def read_pdb_mmcif(filepath: str, append_heteroatoms: 'function' = None) -> Pand
         atomic_df = PandasPdb().read_pdb(filepath)
         atomic_df = atomic_df.get_model(1)
 
+        if len(atomic_df.df['ANISOU']) > 0:
+            if callable(append_heteroatoms):
+                yn_func = append_heteroatoms
+            else:
+                yn_func = yes_no
+
+            if yn_func('Would you like to delete ANISOU entries?\nGenerally recommended.'):
+                atomic_df.df['ANISOU'] = atomic_df.df['ANISOU'].iloc[0:0]
+
         if len(atomic_df.df['HETATM']) > 0:
             if callable(append_heteroatoms):
                 yn_func = append_heteroatoms
@@ -369,9 +378,12 @@ def preprocess(pdb_path: str,
     if cifdata == 'pdb':
         atom_prefix = atoms[atom_name].astype(str).str[0]
         mask_gt_half = (atom_prefix.isin(include)) & (atoms[occupancy].astype(float) > 0.5)
-    else:
+    elif include == ['C', 'N', 'O', 'S']:
         atom_prefix = atoms["_atom_site.type_symbol"].astype(str)
         mask_gt_half = (atom_prefix.isin(['C', 'N', 'O', 'S', 'Se'])) & (atoms[occupancy].astype(float) > 0.5)
+    else:
+        atom_prefix = atoms[atom_name].astype(str).str[0]
+        mask_gt_half = (atom_prefix.isin(include)) & (atoms[occupancy].astype(float) > 0.5)
 
     # 2) Handle occupancy == 0.5: include only the first occurrence per (chain_id, residue_number, atom_name)
     half_mask = atoms[occupancy].astype(float) == 0.5
@@ -494,7 +506,7 @@ def f2_cutoff(d: float|np.ndarray, cutoff: float = 50.0, eps: float = np.inf) ->
     return scores
 
 
-def power_cutoff(d: float|np.ndarray, power: float, cutoff: float, eps: float = np.inf) -> float|np.ndarray:
+def power_cutoff(d: float|np.ndarray, constants: dict, eps: float = np.inf) -> float|np.ndarray:
     """
     Vector-safe (accepts scalars or numpy arrays for faster operation) version of scoring function. 
     - Returns 0 for distances, d, above 0
@@ -510,6 +522,10 @@ def power_cutoff(d: float|np.ndarray, power: float, cutoff: float, eps: float = 
     Returns:
         scores (float or numpy array): Score or array of scores for input of scalar d or numpy array d, respectively.
     """
+
+    power = constants['power']
+    cutoff = constants['cutoff']
+
     da = np.asarray(d, dtype=float)
 
     # avoid warnings but still produce controlled values
@@ -530,11 +546,56 @@ def power_cutoff(d: float|np.ndarray, power: float, cutoff: float, eps: float = 
     return scores
   
 
+def power_double_cutoff(d: float|np.ndarray, constants: dict, eps: float = np.inf) -> float|np.ndarray:
+    """
+    Vector-safe (accepts scalars or numpy arrays for faster operation) version of scoring function. 
+    - Returns 0 for distances, d, above 0
+    - Returns d ** -power for distances within cutoff
+    - Returns inf for distances ≈ 0 -> atom does not count towards its own score
+    - Replaces any nan/inf with finite numbers (0.0) for safety
+
+    Args:
+        d (scalar or numpy array): Distance between two atoms or array of distances between atoms.
+        cutoff (float, optional): Cutoff distance; inputs greater than this will return 0.
+        eps (float, optional): Epsilon used for distance ≈ 0. Purposefully infinite so that each atom does not contribute to its own score.
+
+    Returns:
+        scores (float or numpy array): Score or array of scores for input of scalar d or numpy array d, respectively.
+    """
+
+    power = constants['power']
+    cutoff_far = constants['cutoff_far']
+    cutoff_close = constants['cutoff_close']
+
+    da = np.asarray(d, dtype=float)
+
+    # avoid warnings but still produce controlled values
+    with np.errstate(divide='ignore', invalid='ignore'):
+        # replace zeros with eps before inverting/squaring to avoid inf
+        safe = np.where(da == 0.0, eps, da)
+        scores = 1.0 / (safe ** power)
+
+    # zero out above far cutoff
+    scores = np.where(da > cutoff_far, 0.0, scores)
+
+    # zero out below close cutoff
+    scores = np.where(da < cutoff_close, 0.0, scores)
+
+    # replace any non-finite values (shouldn't be any now) with 0.0
+    scores = np.nan_to_num(scores, nan=0.0, posinf=0.0, neginf=0.0)
+
+    # If input was scalar, return scalar float for compatibility
+    if np.isscalar(d):
+        return float(scores)
+    return scores
+
+
 def exposure(pdb_path: str,
              out_path: str,
              assignment: None | dict[str, np.ndarray] = None, 
-             funcs: dict[str, 'function'] = {'2c50': f2_cutoff}, 
-             max_scores: dict[str, float] = {'2c50': 26.5},
+             funcs: dict[str, 'function'] | list[dict[str, 'function']] = {'scoring_function': power_cutoff,
+                                                                           'constants': {'power': 2, 'cutoff': 50},
+                                                                           'max_score': 26.5},
              progress_callback: 'function' = None) -> list[list[str|float|float]]:
     """
     Saves a pdb with b-factor set to the solvent exposure score for all atoms in the pdb supplied. 
@@ -560,7 +621,12 @@ def exposure(pdb_path: str,
     Raises:
         TypeError: assignment must be None or dict.
     """
-    
+
+    if type(funcs) == dict:
+        funcs:list = [funcs]
+    if type(funcs) != list:
+        raise TypeError('funcs must be a dict or list of dict(s).')
+
     atomic_df, filename, cifdata = read_pdb_mmcif(filepath=pdb_path)
     if cifdata == 'pdb':
         df = atomic_df.df['ATOM'].copy()
@@ -588,11 +654,17 @@ def exposure(pdb_path: str,
         else:
             print(msg)
 
-        return exposure_low_memory(pdb_path=pdb_path, out_path=out_path, max_atoms=mx, assignment=assignment, funcs=funcs, max_scores=max_scores, progress_callback=progress_callback)
+        return exposure_low_memory(pdb_path=pdb_path, out_path=out_path, max_atoms=mx, assignment=assignment, funcs=funcs, progress_callback=progress_callback)
 
     d_cond = pdist(coords)  
-    for key, func in funcs.items():
-        vals = func(d_cond)
+    for d in funcs:
+        func = d['scoring_function']
+        constants = d['constants']
+        funcname = ''
+        for ke, va in constants.items():
+            funcname += ke[0] + str(va).replace('.','point')
+        max_score = d['max_score']
+        vals = func(d_cond, constants)
         if assignment == None:
             sums = np.zeros(n, dtype=vals.dtype)
             idx = 0
@@ -602,16 +674,20 @@ def exposure(pdb_path: str,
                 sums[i+1: n] += vals[idx: idx + l]
                 idx += l
                 
-            df[b_factor] = max_scores[key] - sums
+            if max_score == 0:
+                df[b_factor] = sums
+            else:
+                df[b_factor] = max_score - sums
+
             if cifdata == 'pdb':
-                outname = os.path.join(out_path, filename + '_' + key + '.pdb')
+                outname = os.path.join(out_path, filename + '_' + funcname + '.pdb')
                 atomic_df.df['ATOM'] = df.copy()
                 atomic_df.to_pdb(outname)
             else:
-                outname = os.path.join(out_path, filename + '_' + key + '.cif')
+                outname = os.path.join(out_path, filename + '_' + funcname + '.cif')
                 df_to_cif(outname, df=df, cifdata=cifdata)
 
-            out += [[outname, min(max_scores[key] - sums), max(max_scores[key] - sums)]]
+            out += [[outname, min(df[b_factor]), max(df[b_factor])]]
     
         elif type(assignment) == dict:
             for k, assignment_vert in assignment.items():
@@ -625,16 +701,20 @@ def exposure(pdb_path: str,
                         sums[i+1: n] += block * assignment_vert[i]
                     idx += l
 
-                df[b_factor] = max_scores[key] - sums
+                if max_score == 0:
+                    df[b_factor] = sums
+                else:
+                    df[b_factor] = max_score - sums
+
                 if cifdata == 'pdb':
-                    outname = os.path.join(out_path, filename + '_' + k + '_' + key + '.pdb')
+                    outname = os.path.join(out_path, filename + '_' + k + '_' + funcname + '.pdb')
                     atomic_df.df['ATOM'] = df.copy()
                     atomic_df.to_pdb(outname)
                 else:
-                    outname = os.path.join(out_path, filename + '_' + k + '_' + key + '.cif')
+                    outname = os.path.join(out_path, filename + '_' + k + '_' + funcname + '.cif')
                     df_to_cif(outname, df=df, cifdata=cifdata)
 
-                out += [[outname, min(max_scores[key] - sums), max(max_scores[key] - sums)]]
+                out += [[outname, min(df[b_factor]), max(df[b_factor])]]
 
         else:
             raise TypeError("assignment must be None or dict")
@@ -645,8 +725,9 @@ def exposure_low_memory(pdb_path: str,
                         out_path: str,
                         max_atoms: int,
                         assignment: None | dict[str, np.ndarray] = None, 
-                        funcs: dict[str, 'function'] = {'2c50': f2_cutoff}, 
-                        max_scores: dict[str, float] = {'2c50': 26.5},
+                        funcs: dict[str, 'function'] | list[dict[str, 'function']] = {'scoring_function': power_cutoff,
+                                                                           'constants': {'power': 2, 'cutoff': 50},
+                                                                           'max_score': 26.5},
                         progress_callback: 'function' = None):
     '''
     Saves a pdb with b-factor set to the solvent exposure score for all atoms in the pdb supplied. 
@@ -673,6 +754,11 @@ def exposure_low_memory(pdb_path: str,
     Raises:
         TypeError: assignment must be None or dict.
     '''
+
+    if type(funcs) == dict:
+        funcs:list = [funcs]
+    if type(funcs) != list:
+        raise TypeError('funcs must be a dict or list of dict(s).')
     
     atomic_df, filename, cifdata = read_pdb_mmcif(filepath=pdb_path)
     if cifdata == 'pdb':
@@ -702,9 +788,9 @@ def exposure_low_memory(pdb_path: str,
     sums1 = np.zeros_like(assignment_vert1, dtype=np.float64)
     assignment_vert = {}
     sums = {}
-    for key, _ in funcs.items():
-        assignment_vert[key] = assignment_vert1
-        sums[key] = sums1
+    for ind, _ in enumerate(funcs):
+        assignment_vert[ind] = assignment_vert1
+        sums[ind] = sums1
 
 
     r1 = math.ceil(n / step) - 1
@@ -733,19 +819,25 @@ def exposure_low_memory(pdb_path: str,
             else:
                 print(msg)
         d_cond = pdist(coords[m])
-        for key, func in funcs.items():
-            vals = func(d_cond)
+        for ind, d in enumerate(funcs):
+            func = d['scoring_function']
+            constants = d['constants']
+            # funcname = ''
+            # for ke, va in constants.items():
+            #     funcname += ke[0] + str(va).replace('.','point')
+            max_score = d['max_score']
+            vals = func(d_cond, constants)
             nm=len(m)    
             if k == 0:
                 idx=0
                 for i in range(nm-1):
                     l = nm - i - 1
                     block = vals[idx:idx+l]
-                    sums[key][m[i]] += np.dot(block, assignment_vert[key][m[i+1:nm]])
+                    sums[ind][m[i]] += np.dot(block, assignment_vert[ind][m[i+1:nm]])
                     if assignment:
-                        sums[key][m[i+1:nm]] += np.outer(block, assignment_vert[key][m[i]])
+                        sums[ind][m[i+1:nm]] += np.outer(block, assignment_vert[ind][m[i]])
                     else:
-                        sums[key][m[i+1:nm]] += block * assignment_vert[key][m[i]]
+                        sums[ind][m[i+1:nm]] += block * assignment_vert[ind][m[i]]
                     idx += l
 
             elif k < r1:
@@ -753,11 +845,11 @@ def exposure_low_memory(pdb_path: str,
                 for i in range(nm-1):
                     l = nm - i - 1
                     block = vals[max(idx, idx+l-(nm-step)):idx+l]
-                    sums[key][m[i]] += np.dot(block, assignment_vert[key][m[max(i+1, step):nm]])
+                    sums[ind][m[i]] += np.dot(block, assignment_vert[ind][m[max(i+1, step):nm]])
                     if assignment:
-                        sums[key][m[max(i+1, step):nm]] += np.outer(block, assignment_vert[key][m[i]])
+                        sums[ind][m[max(i+1, step):nm]] += np.outer(block, assignment_vert[ind][m[i]])
                     else:
-                        sums[key][m[max(i+1, step):nm]] += block * assignment_vert[key][m[i]]
+                        sums[ind][m[max(i+1, step):nm]] += block * assignment_vert[ind][m[i]]
                     idx += l
                     
             else:
@@ -765,39 +857,52 @@ def exposure_low_memory(pdb_path: str,
                 for i in range(step):
                     l = nm - i - 1
                     block = vals[max(idx, idx+l-(nm-step)):idx+l]
-                    sums[key][m[i]] += np.dot(block, assignment_vert[key][m[max(i+1, step):nm]])
+                    sums[ind][m[i]] += np.dot(block, assignment_vert[ind][m[max(i+1, step):nm]])
                     if assignment:
-                        sums[key][m[max(i+1, step):nm]] += np.outer(block, assignment_vert[key][m[i]])
+                        sums[ind][m[max(i+1, step):nm]] += np.outer(block, assignment_vert[ind][m[i]])
                     else:
-                        sums[key][m[max(i+1, step):nm]] += block * assignment_vert[key][m[i]]
+                        sums[ind][m[max(i+1, step):nm]] += block * assignment_vert[ind][m[i]]
                     idx += l
-            print(sums[key])
+            print(sums[ind])
 
 
-    for key, func in funcs.items():
+    for indf, d in enumerate(funcs):
+        func = d['scoring_function']
+        constants = d['constants']
+        funcname = ''
+        for ke, va in constants.items():
+            funcname += ke[0] + str(va).replace('.','point')
+        max_score = d['max_score']
         if assignment:
             ind=0
             for ind, k in enumerate(assignment.keys()):
-                df[b_factor] = max_scores[key] - sums[key][:,ind]
+                if max_score == 0:
+                    df[b_factor] = sums[indf][:,ind]
+                else:
+                    df[b_factor] = max_score - sums[indf][:,ind]
+
                 if cifdata == 'pdb':
-                    outname = os.path.join(out_path, filename + '_' + k + '_' + key + '.pdb')
+                    outname = os.path.join(out_path, filename + '_' + k + '_' + funcname + '.pdb')
                     atomic_df.df['ATOM'] = df.copy()
                     atomic_df.to_pdb(outname)
                 else:
-                    outname = os.path.join(out_path, filename + '_' + k + '_' + key + '.cif')
+                    outname = os.path.join(out_path, filename + '_' + k + '_' + funcname + '.cif')
                     df_to_cif(outname, df=df, cifdata=cifdata)
-                out += [[outname, min(max_scores[key] - sums[key][:,ind]), max(max_scores[key] - sums[key][:,ind])]]
+                out += [[outname, min(df[b_factor]), max(df[b_factor])]]
                 ind+=1
         else:
-            df[b_factor] = max_scores[key] - sums[key]
+            if max_score == 0:
+                df[b_factor] = sums[indf]
+            else:
+                df[b_factor] = max_score - sums[indf]
             if cifdata == 'pdb':
-                outname = os.path.join(out_path, filename + '_' + key + '.pdb')
+                outname = os.path.join(out_path, filename + '_' + funcname + '.pdb')
                 atomic_df.df['ATOM'] = df.copy()
                 atomic_df.to_pdb(outname)
             else:
-                outname = os.path.join(out_path, filename + '_' + key + '.cif')
+                outname = os.path.join(out_path, filename + '_' + funcname + '.cif')
                 df_to_cif(outname, df=df, cifdata=cifdata)
-            out += [[outname, min(max_scores[key] - sums[key]), max(max_scores[key] - sums[key])]]
+            out += [[outname, min(df[b_factor]), max(df[b_factor])]]
 
     
     return out
@@ -1589,3 +1694,10 @@ def max_len_for_full_matrix(fraction_of_avail: float = 0.6, dtype: type = np.flo
     return int(math.floor((1 + math.sqrt(1+ 8 * max_bytes / bytes_per_element))/2))
 
 
+available_scoring_functions = {'Power': {'scoring_function': power_cutoff,
+                                         'constants': {'power': 2, 'cutoff': 50},
+                                         'max_score': 26.5},
+                               'Power2': {'scoring_function': power_double_cutoff,
+                                          'constants': {'power': 3, 'cutoff_far': 50, 'cutoff_close': 2},
+                                          'max_score': 0},
+                                         }
