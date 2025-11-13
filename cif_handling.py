@@ -404,15 +404,7 @@ def write_loop_from_df_aligned(df: pd.DataFrame,
                                indent: str = '') -> str:
     """
     Write a CIF loop with fixed column start positions and decimal precision matched to input.
-    - df: DataFrame with same columns as loop tags (tag keys include leading underscores)
-    - loop_info: parsed loop_info that contains tags, rows, raw_text (used for inference)
-    - tag_order: optional explicit order; defaults to loop_info['tags'] or df.columns
-    - start_cols: optional mapping tag->1-based start column; if None it's inferred
-    - decimals_map: optional mapping tag->decimals for float formatting; if None it's inferred
-    - float_fmt_template: optional string template, e.g. '{:.{p}f}' will be used by formatting with p decimals.
-    - missing_token: token for missing values
-    - indent: prefix for each output line
-    Returns the loop text (including header `loop_` and tag lines).
+    Automatically appends a trailing '#' line for atom_site loops (contains '_atom_site.').
     """
     if tag_order is None:
         tag_order = loop_info.get('tags', list(df.columns))
@@ -421,6 +413,9 @@ def write_loop_from_df_aligned(df: pd.DataFrame,
         start_cols = infer_start_columns(loop_info)
     if decimals_map is None:
         decimals_map = infer_decimal_places(loop_info, df)
+
+    # detect atom_site loop
+    is_atom_loop = any('_atom_site.' in t for t in tag_order)
 
     # Build header
     lines_out = []
@@ -432,71 +427,55 @@ def write_loop_from_df_aligned(df: pd.DataFrame,
     is_int_col = {col: pd.api.types.is_integer_dtype(df[col].dtype) for col in tag_order}
     is_float_col = {col: pd.api.types.is_float_dtype(df[col].dtype) for col in tag_order}
 
-    # compute overall minimal line length to start with (use last start + some margin)
     max_start = max((start_cols.get(t, 1) for t in tag_order), default=1)
-    line_base_len = max_start + 20  # grow as needed
+    line_base_len = max_start + 20
 
-    # For each row, construct a character array and place tokens at designated positions
     for _, row in df.iterrows():
-        # primary tokens and multiline blocks
-        multiline_cells: List[Tuple[int, str, str]] = []  # (start_col, tag, content)
-        # we will create a char list for the primary row
         charlist = [' '] * (line_base_len)
-        # ensure charlist can grow dynamically if token overflows
         def ensure_len(L, needed):
             if needed > len(L):
                 L.extend([' '] * (needed - len(L)))
 
+        multiline_cells = []  # (start_col, tag, content)
+
         for tag in tag_order:
             start_col = start_cols.get(tag, 1)
-            # convert to 0-based index
             start_idx = max(0, start_col - 1)
             v = row.get(tag, pd.NA)
             if pd.isna(v):
                 token = missing_token
             else:
-                # integer
                 if is_int_col.get(tag, False):
                     try:
                         token = str(int(v))
                     except Exception:
                         token = str(v)
                 elif is_float_col.get(tag, False):
-                    # determine decimals for this tag
                     p = decimals_map.get(tag, 2)
-                    # build format
-                    # support float_fmt_template like '{:.{p}f}' or None
                     if float_fmt_template:
                         try:
                             token = float_fmt_template.format(float(v), p=p)
                         except Exception:
-                            # attempt simple format
                             token = ('{0:.' + str(p) + 'f}').format(float(v))
                     else:
                         token = ('{0:.' + str(p) + 'f}').format(float(v))
                 else:
                     s = str(v)
                     if '\n' in s:
-                        # multiline; we'll store separately and put a placeholder in primary row
                         token = missing_token
-                        multiline_cells.append((start_idx + 1, tag, s))  # store 1-based start
+                        multiline_cells.append((start_idx + 1, tag, s))
                     else:
-                        # if contains whitespace or starting with semicolon, quote it
                         token = cif_safe_token(s)
-            # put token at start_idx into charlist
             needed_len = start_idx + len(token)
             ensure_len(charlist, needed_len)
-            # write token (overwrite any spaces)
             for k, ch in enumerate(token):
                 charlist[start_idx + k] = ch
 
-        # join and rstrip trailing spaces to make a neat line
         row_line = ''.join(charlist).rstrip()
         lines_out.append(indent + row_line)
 
-        # now write multiline semicolon blocks (if any)
+        # multiline blocks
         for start_col1, tag, content in multiline_cells:
-            # write semicolon block starting on its own lines. We don't try to align these blocks to columns.
             lines_out.append(indent + ';')
             content_str = content
             if content_str.startswith('\n'):
@@ -505,7 +484,10 @@ def write_loop_from_df_aligned(df: pd.DataFrame,
                 lines_out.append(content_line)
             lines_out.append(indent + ';')
 
-    # final newline
+    # Append trailing '#' for atom_site loops
+    if is_atom_loop:
+        lines_out.append('#')
+
     return '\n'.join(lines_out) + '\n'
 
 

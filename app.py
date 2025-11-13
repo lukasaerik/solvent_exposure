@@ -1295,7 +1295,7 @@ class MainWindow(QMainWindow):
         self.manual_calculate_folder_edit.setText(self.current_manual_settings.get('calculate_folder_path', ''))
         self.manual_calculate_folder_browse = QPushButton('Browse...')
         self.manual_calculate_folder_browse.clicked.connect(self._browse_manual_calculate_folder)
-        manual_calculate_folder_row.addWidget(QLabel('Preprocessed Folder:'))
+        manual_calculate_folder_row.addWidget(QLabel('Output Folder:'))
         manual_calculate_folder_row.addWidget(self.manual_calculate_folder_edit)
         manual_calculate_folder_row.addWidget(self.manual_calculate_folder_browse)
         self.manual_calculate_form.addLayout(manual_calculate_folder_row)
