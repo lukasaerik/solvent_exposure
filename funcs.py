@@ -68,23 +68,23 @@ def cif_to_df(path:str):
         '_atom_site.id': 8,
         '_atom_site.type_symbol': 15,
         '_atom_site.label_atom_id': 17,
-        '_atom_site.label_alt_id': 22,
-        '_atom_site.label_comp_id': 24,
-        '_atom_site.label_asym_id': 29,
-        '_atom_site.label_entity_id': 31,
-        '_atom_site.label_seq_id': 33,
-        '_atom_site.pdbx_PDB_ins_code': 38,
-        '_atom_site.Cartn_x': 40,
-        '_atom_site.Cartn_y': 49,
-        '_atom_site.Cartn_z': 58,
-        '_atom_site.occupancy': 67,
-        '_atom_site.B_iso_or_equiv': 72,
-        '_atom_site.pdbx_formal_charge': 78,
-        '_atom_site.auth_seq_id': 80,
-        '_atom_site.auth_comp_id': 86,
-        '_atom_site.auth_asym_id': 92,
-        '_atom_site.auth_atom_id': 94,
-        '_atom_site.pdbx_PDB_model_num': 99
+        '_atom_site.label_alt_id': 23,
+        '_atom_site.label_comp_id': 25,
+        '_atom_site.label_asym_id': 30,
+        '_atom_site.label_entity_id': 32,
+        '_atom_site.label_seq_id': 35,
+        '_atom_site.pdbx_PDB_ins_code': 40,
+        '_atom_site.Cartn_x': 42,
+        '_atom_site.Cartn_y': 51,
+        '_atom_site.Cartn_z': 60,
+        '_atom_site.occupancy': 69,
+        '_atom_site.B_iso_or_equiv': 74,
+        '_atom_site.pdbx_formal_charge': 82,
+        '_atom_site.auth_seq_id': 84,
+        '_atom_site.auth_comp_id': 90,
+        '_atom_site.auth_asym_id': 96,
+        '_atom_site.auth_atom_id': 98,
+        '_atom_site.pdbx_PDB_model_num': 104
     }
 
     # merge inferred with overrides (override wins)
@@ -785,12 +785,12 @@ def exposure_low_memory(pdb_path: str,
     else:
         raise TypeError("assignment must be None or dict")
     
-    sums1 = np.zeros_like(assignment_vert1, dtype=np.float64)
+    # sums1 = np.zeros_like(assignment_vert1, dtype=np.float64)
     assignment_vert = {}
     sums = {}
     for ind, _ in enumerate(funcs):
         assignment_vert[ind] = assignment_vert1
-        sums[ind] = sums1
+        sums[ind] = np.zeros_like(assignment_vert1, dtype=np.float64)
 
 
     r1 = math.ceil(n / step) - 1
@@ -1102,7 +1102,7 @@ def create_3_vectors(pdb_path: str, chain1: str | list, feature: str) -> dict[st
     return {name: out1, 'not'+name: out2, 'tot': out_tot}
 
 
-def create_vectors(pdb_path: str, include: str | list, feature: str) -> dict[str, np.ndarray]:
+def create_vectors(pdb_path: str, include: str | list, feature: str, append_heteroatoms: 'function' = yes_no) -> dict[str, np.ndarray]:
     """
     Creates one assignment vector, with values True/1 for all atoms that have entries in include for feature and False/0 for all that are not.
     This is useful for understanding the contribution to solvent exposure score from some atoms, such as those in adduct/detergent molecules.
@@ -1115,7 +1115,7 @@ def create_vectors(pdb_path: str, include: str | list, feature: str) -> dict[str
     Returns:
         out (dict[str: numpy array]): A dict with one key-value pair. The name of what is included, as a string, is the key. The value is the assignment vector.
     """    
-    atomic_df, _, cifdata = read_pdb_mmcif(filepath=pdb_path)
+    atomic_df, _, cifdata = read_pdb_mmcif(filepath=pdb_path, append_heteroatoms=True)
 
     if cifdata == 'pdb':
         df = atomic_df.df['ATOM'].copy()
@@ -1591,6 +1591,18 @@ def visualize(pdb_path: str,
     return fig
 
 
+def getcols(pdb_path: str, yn: 'function' = yes_no) -> list:
+    atomic_df, _, cifdata = read_pdb_mmcif(filepath=pdb_path, append_heteroatoms=yn)
+    if cifdata == 'pdb':
+        df = atomic_df.df['ATOM']
+    else:
+        df = atomic_df
+
+    df = df.dropna(axis=1)
+
+    return list(df.columns.values)
+
+
 def features(pdb_path: str, feature: str, yn: 'function' = yes_no) -> list:
     """
     Creates a list of all unique entries within a pdb or mmcif file for an individual feature/identifier (e.g., chain_id, residue_name, atom_name).
@@ -1701,3 +1713,6 @@ available_scoring_functions = {'Power': {'scoring_function': power_cutoff,
                                           'constants': {'power': 3, 'cutoff_far': 50, 'cutoff_close': 2},
                                           'max_score': 0},
                                          }
+
+
+# print(getcols('pdbs/in/1SS8.cif'))

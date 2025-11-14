@@ -69,7 +69,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from funcs import preprocess, create_3_vectors, exposure, score_v_localres, features, average_score, visualize, score_v_localres_plotly, standard_residues, available_scoring_functions
+from funcs import preprocess, create_3_vectors, create_vectors, exposure, score_v_localres, features, getcols, average_score, visualize, score_v_localres_plotly, standard_residues, available_scoring_functions
 
 basedir = os.path.dirname(__file__)
 
@@ -426,6 +426,129 @@ class CheckableAddComboBox(QComboBox):
                 res.append(item.text())
         return res
     
+
+class AddableComboBox(QComboBox):
+    """QComboBox that looks & behaves like normal single-selection combo
+    but adds a permanent 'Add...' row in the popup to add new items."""
+    ADD_ROW_ROLE = Qt.ItemDataRole.UserRole + 100
+
+    class Delegate(QStyledItemDelegate):
+        def sizeHint(self, option, index):
+            size = super().sizeHint(option, index)
+            size.setHeight(20)
+            return size
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+
+        # Use explicit QStandardItemModel so we can append a custom item
+        self.setModel(QStandardItemModel(self))
+        self.setItemDelegate(AddableComboBox.Delegate())
+
+        self._add_row_text = "➕ Add..."
+        self._has_add_row = False
+
+        # install event filter on popup viewport to intercept clicks
+        self.view().viewport().installEventFilter(self)
+
+    # ---------- add-row management ----------
+    def ensureAddRow(self):
+        """Append the Add... row if not already present."""
+        if self._has_add_row:
+            return
+        add_item = QStandardItem(self._add_row_text)
+        add_item.setFlags(Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable)
+        add_item.setData(True, self.ADD_ROW_ROLE)
+        self.model().appendRow(add_item)
+        self._has_add_row = True
+
+    def removeAddRow(self):
+        """Remove the Add... row if present."""
+        if not self._has_add_row:
+            return
+        last = self.model().rowCount() - 1
+        if last >= 0:
+            self.model().removeRow(last)
+        self._has_add_row = False
+
+    # ---------- override addItem/addItems to keep Add row last ----------
+    def addItem(self, text, userData=None):
+        """Append a normal item, keeping Add... at the end."""
+        had_add = self._has_add_row
+        if had_add:
+            self.removeAddRow()
+
+        # Use QStandardItem so it's part of the model
+        item = QStandardItem(text)
+        # Make it selectable by default (QComboBox reads display text)
+        item.setFlags(Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable)
+        self.model().appendRow(item)
+
+        if had_add:
+            self.ensureAddRow()
+
+    def addItems(self, texts):
+        for t in texts:
+            self.addItem(t)
+
+    # ---------- event filter: handle clicks on Add... row ----------
+    def eventFilter(self, obj, event):
+        # Only care about clicks inside the popup viewport
+        if obj == self.view().viewport():
+            if event.type() == QEvent.Type.MouseButtonRelease:
+                index = self.view().indexAt(event.pos())
+                if not index.isValid():
+                    return False
+
+                row = index.row()
+                item = self.model().item(row)
+                if item is None:
+                    return False
+
+                # Treat only the actual last row as Add... (and only if flagged)
+                last_row = self.model().rowCount() - 1
+                is_add_row = self._has_add_row and (row == last_row) and bool(item.data(self.ADD_ROW_ROLE))
+
+                if is_add_row:
+                    # consume the click and open Add dialog
+                    text, ok = QInputDialog.getText(self, "Add item", "New item:")
+                    if ok and text:
+                        # insert new item before add-row
+                        self.removeAddRow()
+                        self.addItem(text)
+                        # set current selection to the newly added item (last before add-row)
+                        new_index = self.model().rowCount() - 1
+                        if new_index >= 0:
+                            self.setCurrentIndex(new_index)
+                        self.ensureAddRow()
+                    return True
+
+                # not add-row: return False so Qt will handle normal selection
+                return False
+
+            return False
+
+        # fallback for other objects
+        return super().eventFilter(obj, event)
+
+    # ---------- show popup ensure Add row ----------
+    def showPopup(self):
+        # make sure the Add row is present every time popup is shown
+        self.ensureAddRow()
+        super().showPopup()
+
+    # Optionally expose current items as list
+    def items(self):
+        out = []
+        for i in range(self.model().rowCount()):
+            item = self.model().item(i)
+            if item is None:
+                continue
+            if bool(item.data(self.ADD_ROW_ROLE)):
+                continue
+            out.append(item.text())
+        return out
+
 
 class MplCanvas(FigureCanvas):
     '''Simple Matplotlib FigureCanvas to hold one Axes.'''
@@ -1172,6 +1295,8 @@ class MainWindow(QMainWindow):
             'preprocess_include_selected':['C', 'N', 'O', 'S'],
             'preprocess_redefine_chains': False,
             'preprocessed_path_assignment': '',
+            'single_include': '',
+            'single_feature': '',
             'assignment_vectors': None,
             'preprocessed_path_calculate': '',
             'calculate_folder_path': os.path.join(basedir, 'pdbs', 'out'),
@@ -1256,12 +1381,57 @@ class MainWindow(QMainWindow):
         self.enable_disable.append(self.manual_assignment_reset)
         manual_assignment_form.addWidget(self.manual_assignment_reset)
 
+        # File selection
+        manual_assignment_file_row = QHBoxLayout()
+        self.manual_assignment_file_edit = QLineEdit()
+        self.manual_assignment_file_edit.setText(self.current_manual_settings.get('preprocessed_path_assignment', ''))
+        self.manual_assignment_file_browse = QPushButton('Browse...')
+        self.manual_assignment_file_browse.clicked.connect(self._browse_manual_assignment_file)
+        manual_assignment_file_row.addWidget(QLabel('PDB/mmCIF File:'))
+        manual_assignment_file_row.addWidget(self.manual_assignment_file_edit)
+        manual_assignment_file_row.addWidget(self.manual_assignment_file_browse)
+        manual_assignment_form.addLayout(manual_assignment_file_row)
+
         # Vector Creation options
         assignment_creation_tabs = QTabWidget()
         assignment_creation_tabs.setTabPosition(QTabWidget.TabPosition.North)
         assignment_creation_tabs.setMovable(False)
 
-        assignment_creation_tabs.addTab(QLabel('Single vector'), 'Single Vector')
+        #Single Vector
+        single_vector_tab = QWidget()
+        single_vector_layout = QVBoxLayout()
+
+        single_vector_feature_row = QHBoxLayout()
+        single_vector_feature_sel_col = QVBoxLayout()
+        label = QLabel('Feature')
+        label.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
+        single_vector_feature_sel_col.addWidget(label)
+        self.manual_single_feature_combo = QComboBox()
+        self.manual_single_feature_combo.activated.connect(self._on_single_feature_changed)
+        single_vector_feature_sel_col.addWidget(self.manual_single_feature_combo)
+        single_vector_feature_row.addLayout(single_vector_feature_sel_col)
+
+        single_vector_include_col = QVBoxLayout()
+        label = QLabel('Include')
+        label.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
+        single_vector_include_col.addWidget(label)
+        self.manual_single_include_combo = CheckableComboBox()
+        single_vector_include_col.addWidget(self.manual_single_include_combo)
+        single_vector_feature_row.addLayout(single_vector_include_col)
+        single_vector_layout.addLayout(single_vector_feature_row)
+
+        single_vector_run_row = QHBoxLayout()
+        self.manual_single_assignment_overwrite = QPushButton('Overwrite assignment vector(s)')
+        self.manual_single_assignment_overwrite.clicked.connect(lambda _, o = True: self.on_manual_single_assignment_clicked(o))
+        self.enable_disable.append(self.manual_single_assignment_overwrite)
+        single_vector_run_row.addWidget(self.manual_single_assignment_overwrite)
+        self.manual_single_assignment_add = QPushButton('Add assignment vector(s)')
+        self.manual_single_assignment_add.clicked.connect(lambda _, o = False: self.on_manual_single_assignment_clicked(o))
+        self.enable_disable.append(self.manual_single_assignment_add)
+        single_vector_run_row.addWidget(self.manual_single_assignment_add)
+        single_vector_layout.addLayout(single_vector_run_row)
+        single_vector_tab.setLayout(single_vector_layout)
+        assignment_creation_tabs.addTab(single_vector_tab, 'Single Vector')
 
         assignment_creation_tabs.addTab(QLabel('Three vectors'), 'Three Vectors')
 
@@ -1858,6 +2028,9 @@ class MainWindow(QMainWindow):
         self.current_manual_settings['preprocessed_path_assignment'] = result
         self.current_manual_settings['preprocessed_path_calculate'] = result
         self.manual_calculate_file_edit.setText(result)
+        self.manual_assignment_file_edit.setText(result)
+        self.manual_single_feature_combo.clear()
+        self.manual_single_feature_combo.addItems(getcols(result, True))
         self.manual_output.append(f"Preprocessing complete. File {result} saved.")
 
     def on_worker_manual_preprocess_error(self, err_str):
@@ -1882,6 +2055,67 @@ class MainWindow(QMainWindow):
         yn = (button == QMessageBox.StandardButton.Yes)
         if yn:
             self.current_manual_settings['assignment_vectors'] = None
+
+    def _browse_manual_assignment_file(self):
+        fname, _ = QFileDialog.getOpenFileName(self, 'Select file', self.manual_assignment_file_edit.text() or '', 'All Files (*)')
+        if fname:
+            self.manual_assignment_file_edit.setText(fname)
+            self.manual_calculate_file_edit.setText(fname)
+            self.manual_single_feature_combo.clear()
+            self.manual_single_feature_combo.addItems(getcols(fname, True))
+
+    def _on_single_feature_changed(self):
+        self.manual_single_include_combo.clear()
+        tempfeature = features(self.manual_assignment_file_edit.text(), feature = self.manual_single_feature_combo.currentText(), yn=True)
+        strfeature = []
+        for i in tempfeature:
+            strfeature.append(str(i))
+        self.manual_single_include_combo.addItems(strfeature)
+
+    def on_manual_single_assignment_clicked(self, overwrite):
+        if overwrite:
+            dlg = QMessageBox(self)
+            dlg.setWindowTitle('User Input Required')
+            dlg.setText('Are you sure you want to overwrite all assignment vectors?\nThis cannot be undone.')
+            dlg.setStandardButtons(QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+            dlg.setDefaultButton(QMessageBox.StandardButton.Yes)
+            dlg.setIcon(QMessageBox.Icon.Question)
+            button = dlg.exec()
+            yn = (button == QMessageBox.StandardButton.Yes)
+            if not yn:
+                return
+
+        updated_settings = self.get_manual_settings()
+        for k in updated_settings:
+            self.current_manual_settings[k] = updated_settings.get(k)
+
+        # disable run button while running
+        self.manual_single_include_combo.setEnabled(False)
+        self.manual_single_feature_combo.setEnabled(False)
+        self.manual_assignment_file_edit.setEnabled(False)
+        for b in self.enable_disable:
+            b.setEnabled(False)
+
+        result = create_vectors(pdb_path=self.current_manual_settings.get('preprocessed_path_assignment'), 
+                                include=self.current_manual_settings.get('single_include'),
+                                feature=self.current_manual_settings.get('single_feature'))
+        
+
+        if overwrite:
+            self.current_manual_settings['assignment_vectors'] = result
+        elif self.current_manual_settings.get('assignment_vectors') == None:
+            self.current_manual_settings['assignment_vectors'] = result
+        else:
+            for ke, va in result.items():
+                self.current_manual_settings['assignment_vectors'][ke] = va
+            
+        self.manual_output.append(f"{self.current_manual_settings.get('assignment_vectors')}")
+
+        self.manual_single_include_combo.setEnabled(True)
+        self.manual_single_feature_combo.setEnabled(True)
+        self.manual_assignment_file_edit.setEnabled(True)
+        for b in self.enable_disable:
+            b.setEnabled(True)
 
 
 
@@ -2117,7 +2351,9 @@ class MainWindow(QMainWindow):
             'preprocess_folder_path': self.manual_preprocess_folder_edit.text(),
             'preprocess_include_selected': self.preprocess_include_combo.currentData(),
             'preprocess_redefine_chains': self.preprocess_redefine_chains,
-            'preprocessed_path_assignment': '',
+            'preprocessed_path_assignment': self.manual_preprocess_file_edit.text(),
+            'single_include': self.manual_single_include_combo.currentData(),
+            'single_feature': self.manual_single_feature_combo.currentText(),
             'preprocessed_path_calculate': self.manual_calculate_file_edit.text(),
             'calculate_folder_path': self.manual_calculate_folder_edit.text(),
             'calculate_assignment': self.calculate_assignment,
