@@ -1297,6 +1297,8 @@ class MainWindow(QMainWindow):
             'preprocessed_path_assignment': '',
             'single_include': '',
             'single_feature': '',
+            'three_include': '',
+            'three_feature': '',
             'assignment_vectors': None,
             'preprocessed_path_calculate': '',
             'calculate_folder_path': os.path.join(basedir, 'pdbs', 'out'),
@@ -1376,7 +1378,7 @@ class MainWindow(QMainWindow):
         manual_assignment_form = QVBoxLayout()
 
         # Reset Button
-        self.manual_assignment_reset = QPushButton('Reset Assignment Vectors')
+        self.manual_assignment_reset = QPushButton('Clear Assignment Vectors')
         self.manual_assignment_reset.clicked.connect(self.on_manual_assignment_reset_clicked)
         self.enable_disable.append(self.manual_assignment_reset)
         manual_assignment_form.addWidget(self.manual_assignment_reset)
@@ -1433,7 +1435,41 @@ class MainWindow(QMainWindow):
         single_vector_tab.setLayout(single_vector_layout)
         assignment_creation_tabs.addTab(single_vector_tab, 'Single Vector')
 
-        assignment_creation_tabs.addTab(QLabel('Three vectors'), 'Three Vectors')
+        #Three Vector
+        three_vector_tab = QWidget()
+        three_vector_layout = QVBoxLayout()
+
+        three_vector_feature_row = QHBoxLayout()
+        three_vector_feature_sel_col = QVBoxLayout()
+        label = QLabel('Feature')
+        label.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
+        three_vector_feature_sel_col.addWidget(label)
+        self.manual_three_feature_combo = QComboBox()
+        self.manual_three_feature_combo.activated.connect(self._on_three_feature_changed)
+        three_vector_feature_sel_col.addWidget(self.manual_three_feature_combo)
+        three_vector_feature_row.addLayout(three_vector_feature_sel_col)
+
+        three_vector_include_col = QVBoxLayout()
+        label = QLabel('Include')
+        label.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
+        three_vector_include_col.addWidget(label)
+        self.manual_three_include_combo = CheckableComboBox()
+        three_vector_include_col.addWidget(self.manual_three_include_combo)
+        three_vector_feature_row.addLayout(three_vector_include_col)
+        three_vector_layout.addLayout(three_vector_feature_row)
+
+        three_vector_run_row = QHBoxLayout()
+        self.manual_three_assignment_overwrite = QPushButton('Overwrite assignment vector(s)')
+        self.manual_three_assignment_overwrite.clicked.connect(lambda _, o = True: self.on_manual_three_assignment_clicked(o))
+        self.enable_disable.append(self.manual_three_assignment_overwrite)
+        three_vector_run_row.addWidget(self.manual_three_assignment_overwrite)
+        self.manual_three_assignment_add = QPushButton('Add assignment vector(s)')
+        self.manual_three_assignment_add.clicked.connect(lambda _, o = False: self.on_manual_three_assignment_clicked(o))
+        self.enable_disable.append(self.manual_three_assignment_add)
+        three_vector_run_row.addWidget(self.manual_three_assignment_add)
+        three_vector_layout.addLayout(three_vector_run_row)
+        three_vector_tab.setLayout(three_vector_layout)
+        assignment_creation_tabs.addTab(three_vector_tab, 'Three Vectors')
 
         assignment_creation_tabs.addTab(QLabel('Weighted vector'), 'Weighted Vector')
 
@@ -2031,6 +2067,8 @@ class MainWindow(QMainWindow):
         self.manual_assignment_file_edit.setText(result)
         self.manual_single_feature_combo.clear()
         self.manual_single_feature_combo.addItems(getcols(result, True))
+        self.manual_three_feature_combo.clear()
+        self.manual_three_feature_combo.addItems(getcols(result, True))
         self.manual_output.append(f"Preprocessing complete. File {result} saved.")
 
     def on_worker_manual_preprocess_error(self, err_str):
@@ -2047,7 +2085,7 @@ class MainWindow(QMainWindow):
     def on_manual_assignment_reset_clicked(self):
         dlg = QMessageBox(self)
         dlg.setWindowTitle('User Input Required')
-        dlg.setText('Are you sure you want to reset all assignment vectors?\nThis cannot be undone.')
+        dlg.setText('Are you sure you want to clear all assignment vectors?\nThis cannot be undone.')
         dlg.setStandardButtons(QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
         dlg.setDefaultButton(QMessageBox.StandardButton.Yes)
         dlg.setIcon(QMessageBox.Icon.Question)
@@ -2055,6 +2093,7 @@ class MainWindow(QMainWindow):
         yn = (button == QMessageBox.StandardButton.Yes)
         if yn:
             self.current_manual_settings['assignment_vectors'] = None
+            self.manual_output.append('Assignment vectors cleared')
 
     def _browse_manual_assignment_file(self):
         fname, _ = QFileDialog.getOpenFileName(self, 'Select file', self.manual_assignment_file_edit.text() or '', 'All Files (*)')
@@ -2063,6 +2102,8 @@ class MainWindow(QMainWindow):
             self.manual_calculate_file_edit.setText(fname)
             self.manual_single_feature_combo.clear()
             self.manual_single_feature_combo.addItems(getcols(fname, True))
+            self.manual_three_feature_combo.clear()
+            self.manual_three_feature_combo.addItems(getcols(fname, True))
 
     def _on_single_feature_changed(self):
         self.manual_single_include_combo.clear()
@@ -2089,6 +2130,10 @@ class MainWindow(QMainWindow):
         for k in updated_settings:
             self.current_manual_settings[k] = updated_settings.get(k)
 
+        if self.current_manual_settings.get('preprocessed_path_assignment') == '' or self.current_manual_settings.get('single_include') == '' or self.current_manual_settings.get('single_feature') == '':
+            self.manual_output.append('Inputs not selected.')
+            return
+
         # disable run button while running
         self.manual_single_include_combo.setEnabled(False)
         self.manual_single_feature_combo.setEnabled(False)
@@ -2108,11 +2153,70 @@ class MainWindow(QMainWindow):
         else:
             for ke, va in result.items():
                 self.current_manual_settings['assignment_vectors'][ke] = va
-            
-        self.manual_output.append(f"{self.current_manual_settings.get('assignment_vectors')}")
+        
+        self.manual_output.append(f"{len(self.current_manual_settings.get('assignment_vectors'))} assignment vector(s): {list(self.current_manual_settings.get('assignment_vectors').keys())}")
 
         self.manual_single_include_combo.setEnabled(True)
         self.manual_single_feature_combo.setEnabled(True)
+        self.manual_assignment_file_edit.setEnabled(True)
+        for b in self.enable_disable:
+            b.setEnabled(True)
+
+
+
+    def _on_three_feature_changed(self):
+        self.manual_three_include_combo.clear()
+        tempfeature = features(self.manual_assignment_file_edit.text(), feature = self.manual_three_feature_combo.currentText(), yn=True)
+        strfeature = []
+        for i in tempfeature:
+            strfeature.append(str(i))
+        self.manual_three_include_combo.addItems(strfeature)
+
+    def on_manual_three_assignment_clicked(self, overwrite):
+        if overwrite:
+            dlg = QMessageBox(self)
+            dlg.setWindowTitle('User Input Required')
+            dlg.setText('Are you sure you want to overwrite all assignment vectors?\nThis cannot be undone.')
+            dlg.setStandardButtons(QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+            dlg.setDefaultButton(QMessageBox.StandardButton.Yes)
+            dlg.setIcon(QMessageBox.Icon.Question)
+            button = dlg.exec()
+            yn = (button == QMessageBox.StandardButton.Yes)
+            if not yn:
+                return
+
+        updated_settings = self.get_manual_settings()
+        for k in updated_settings:
+            self.current_manual_settings[k] = updated_settings.get(k)
+
+        if self.current_manual_settings.get('preprocessed_path_assignment') == '' or self.current_manual_settings.get('three_include') == '' or self.current_manual_settings.get('three_feature') == '':
+            self.manual_output.append('Inputs not selected.')
+            return
+
+        # disable run button while running
+        self.manual_three_include_combo.setEnabled(False)
+        self.manual_three_feature_combo.setEnabled(False)
+        self.manual_assignment_file_edit.setEnabled(False)
+        for b in self.enable_disable:
+            b.setEnabled(False)
+
+        result = create_3_vectors(pdb_path=self.current_manual_settings.get('preprocessed_path_assignment'), 
+                                  chain1=self.current_manual_settings.get('three_include'),
+                                  feature=self.current_manual_settings.get('three_feature'),)
+        
+
+        if overwrite:
+            self.current_manual_settings['assignment_vectors'] = result
+        elif self.current_manual_settings.get('assignment_vectors') == None:
+            self.current_manual_settings['assignment_vectors'] = result
+        else:
+            for ke, va in result.items():
+                self.current_manual_settings['assignment_vectors'][ke] = va
+        
+        self.manual_output.append(f"{len(self.current_manual_settings.get('assignment_vectors'))} assignment vector(s): {list(self.current_manual_settings.get('assignment_vectors').keys())}")
+
+        self.manual_three_include_combo.setEnabled(True)
+        self.manual_three_feature_combo.setEnabled(True)
         self.manual_assignment_file_edit.setEnabled(True)
         for b in self.enable_disable:
             b.setEnabled(True)
@@ -2354,6 +2458,8 @@ class MainWindow(QMainWindow):
             'preprocessed_path_assignment': self.manual_preprocess_file_edit.text(),
             'single_include': self.manual_single_include_combo.currentData(),
             'single_feature': self.manual_single_feature_combo.currentText(),
+            'three_include': self.manual_three_include_combo.currentData(),
+            'three_feature': self.manual_three_feature_combo.currentText(),
             'preprocessed_path_calculate': self.manual_calculate_file_edit.text(),
             'calculate_folder_path': self.manual_calculate_folder_edit.text(),
             'calculate_assignment': self.calculate_assignment,

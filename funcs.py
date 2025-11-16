@@ -128,6 +128,7 @@ def read_pdb_mmcif(filepath: str, append_heteroatoms: 'function' = None) -> Pand
     Returns:
         atomic_df,filename (PandasPdb, str): The PandasPdb generated from the read file and the filename (basename) without extention.
     """
+
     filename = os.path.basename(filepath)
 
     if filename.rsplit('.',1)[1] == 'gz':
@@ -142,24 +143,30 @@ def read_pdb_mmcif(filepath: str, append_heteroatoms: 'function' = None) -> Pand
         if len(atomic_df.df['ANISOU']) > 0:
             if callable(append_heteroatoms):
                 yn_func = append_heteroatoms
+            elif append_heteroatoms == True:
+                atomic_df.df['ANISOU'] = atomic_df.df['ANISOU'].iloc[0:0]
             else:
                 yn_func = yes_no
-
-            if yn_func('Would you like to delete ANISOU entries?\nGenerally recommended.'):
-                atomic_df.df['ANISOU'] = atomic_df.df['ANISOU'].iloc[0:0]
+            if append_heteroatoms != True:
+                if yn_func('Would you like to delete ANISOU entries?\nGenerally recommended.'):
+                    atomic_df.df['ANISOU'] = atomic_df.df['ANISOU'].iloc[0:0]
 
         if len(atomic_df.df['HETATM']) > 0:
-            if callable(append_heteroatoms):
-                yn_func = append_heteroatoms
-            else:
-                yn_func = yes_no
-
-            if yn_func('Would you like to include heteroatoms so they are used in the solvent exposure calculation?'):    
+            if append_heteroatoms == True:
                 atomic_df.df['ATOM'] = pd.concat([atomic_df.df['ATOM'], atomic_df.df['HETATM']], ignore_index = True)
                 atomic_df.df['ATOM']['record_name'] = 'ATOM'
                 atomic_df.df['HETATM'] = atomic_df.df['HETATM'].iloc[0:0]
+            elif callable(append_heteroatoms):
+                yn_func = append_heteroatoms
             else:
-                atomic_df.df['HETATM'] = atomic_df.df['HETATM'].iloc[0:0]
+                yn_func = yes_no
+            if append_heteroatoms != True:
+                if yn_func('Would you like to include heteroatoms so they are used in the solvent exposure calculation?'):    
+                    atomic_df.df['ATOM'] = pd.concat([atomic_df.df['ATOM'], atomic_df.df['HETATM']], ignore_index = True)
+                    atomic_df.df['ATOM']['record_name'] = 'ATOM'
+                    atomic_df.df['HETATM'] = atomic_df.df['HETATM'].iloc[0:0]
+                else:
+                    atomic_df.df['HETATM'] = atomic_df.df['HETATM'].iloc[0:0]
         
         try:
             atomic_df.df['ATOM'] = atomic_df.df['ATOM'].drop('model_id', axis = 1)
@@ -180,17 +187,19 @@ def read_pdb_mmcif(filepath: str, append_heteroatoms: 'function' = None) -> Pand
     
     elif fileext == 'cif':
         df, cifdata = cif_to_df(filepath)
-        # print(len(df[df['_atom_site.group_PDB']=='HETATM']))
         if len(df[df['_atom_site.group_PDB']=='HETATM']) > 0:
-            if callable(append_heteroatoms):
+            if append_heteroatoms == True:
+                df['_atom_site.group_PDB']='ATOM'
+            elif callable(append_heteroatoms):
                 yn_func = append_heteroatoms
             else:
                 yn_func = yes_no
 
-            if yn_func('Would you like to include heteroatoms so they are used in the solvent exposure calculation?'):    
-                df['_atom_site.group_PDB']='ATOM'
-            else:
-                df = df[df['_atom_site.group_PDB']=='ATOM']
+            if append_heteroatoms != True:
+                if yn_func('Would you like to include heteroatoms so they are used in the solvent exposure calculation?'):    
+                    df['_atom_site.group_PDB']='ATOM'
+                else:
+                    df = df[df['_atom_site.group_PDB']=='ATOM']
 
         return df, filename, cifdata
     else:
@@ -628,7 +637,7 @@ def exposure(pdb_path: str,
     if type(funcs) != list:
         raise TypeError('funcs must be a dict or list of dict(s).')
 
-    atomic_df, filename, cifdata = read_pdb_mmcif(filepath=pdb_path)
+    atomic_df, filename, cifdata = read_pdb_mmcif(filepath=pdb_path, append_heteroatoms=True)
     if cifdata == 'pdb':
         df = atomic_df.df['ATOM'].copy()
         x_coord, y_coord, z_coord, b_factor = 'x_coord', 'y_coord', 'z_coord', 'b_factor'
@@ -761,7 +770,7 @@ def exposure_low_memory(pdb_path: str,
     if type(funcs) != list:
         raise TypeError('funcs must be a dict or list of dict(s).')
     
-    atomic_df, filename, cifdata = read_pdb_mmcif(filepath=pdb_path)
+    atomic_df, filename, cifdata = read_pdb_mmcif(filepath=pdb_path, append_heteroatoms=True)
     if cifdata == 'pdb':
         df = atomic_df.df['ATOM'].copy()
         x_coord, y_coord, z_coord, b_factor = 'x_coord', 'y_coord', 'z_coord', 'b_factor'
@@ -1076,7 +1085,7 @@ def create_3_vectors(pdb_path: str, chain1: str | list, feature: str) -> dict[st
         (dict[str: numpy array]): A dict with three key-value pairs, one per assignment vector. 
             The key, a string, is used for future file naming and keeping track of which entries are in assignment vector 1, and therefore those that aren't in assignment vector 2. The key for the True/1 vector is tot.
     """    
-    atomic_df, _, cifdata = read_pdb_mmcif(filepath=pdb_path)
+    atomic_df, _, cifdata = read_pdb_mmcif(filepath=pdb_path, append_heteroatoms=True)
 
     if cifdata == 'pdb':
         df = atomic_df.df['ATOM'].copy()
@@ -1103,7 +1112,7 @@ def create_3_vectors(pdb_path: str, chain1: str | list, feature: str) -> dict[st
     return {name: out1, 'not'+name: out2, 'tot': out_tot}
 
 
-def create_vectors(pdb_path: str, include: str | list, feature: str, append_heteroatoms: 'function' = yes_no) -> dict[str, np.ndarray]:
+def create_vectors(pdb_path: str, include: str | list, feature: str) -> dict[str, np.ndarray]:
     """
     Creates one assignment vector, with values True/1 for all atoms that have entries in include for feature and False/0 for all that are not.
     This is useful for understanding the contribution to solvent exposure score from some atoms, such as those in adduct/detergent molecules.
