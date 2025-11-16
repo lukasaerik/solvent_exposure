@@ -1471,7 +1471,73 @@ class MainWindow(QMainWindow):
         three_vector_tab.setLayout(three_vector_layout)
         assignment_creation_tabs.addTab(three_vector_tab, 'Three Vectors')
 
-        assignment_creation_tabs.addTab(QLabel('Weighted vector'), 'Weighted Vector')
+        weight_vector_tab = QWidget()
+        weight_vector_layout = QVBoxLayout()
+
+        self.weight_vectors = {}
+        self.weight_vectors_included = []
+
+        self.weight_vector_components_widget = QWidget()
+        self.weight_vector_components = QVBoxLayout()
+        self.weight_vector_components_widget.setLayout(self.weight_vector_components)
+
+        v = QWidget()
+        v.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
+        vector_component = QHBoxLayout()
+
+        feature_col = QVBoxLayout()
+        label = QLabel('Feature')
+        label.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
+        feature_col.addWidget(label)
+        vector_component_feature_combo = QComboBox()
+        # vector_component_feature_combo.activated.connect(lambda _, i=0: self._on_component_feature_changed(i))
+        feature_col.addWidget(vector_component_feature_combo)
+        self.weight_vectors[0] = {'feature_combo': vector_component_feature_combo}
+        self.weight_vectors_included.append(0)
+        vector_component.addLayout(feature_col)
+
+        include_col = QVBoxLayout()
+        label = QLabel('Include')
+        label.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
+        include_col.addWidget(label)
+        vector_component_include_combo = QComboBox()
+        include_col.addWidget(vector_component_include_combo)
+        self.weight_vectors[0]['include_combo'] = vector_component_include_combo
+        vector_component.addLayout(include_col)
+
+        weight_add_col = QVBoxLayout()
+        weight_row = QHBoxLayout()
+        label = QLabel('Weight')
+        label.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
+        weight_row.addWidget(label)
+        weight_box = QDoubleSpinBox()
+        weight_box.setMinimum(0)
+        weight_row.addWidget(weight_box)
+        self.weight_vectors[0]['weight'] = weight_box
+        weight_add_col.addLayout(weight_row)
+        add_row_button = QPushButton('Add Vector')
+        # add_row_button.clicked.connect(self._on_vector_add_row)
+        weight_add_col.addWidget(add_row_button)
+        vector_component.addLayout(weight_add_col)
+        v.setLayout(vector_component)
+
+        self.weight_vector_components.addWidget(v)
+        self.weight_vector_components_widget.setLayout(self.weight_vector_components)
+        weight_vector_layout.addWidget(self.weight_vector_components_widget)
+
+        weight_vector_run_row = QHBoxLayout()
+        self.manual_weight_assignment_overwrite = QPushButton('Overwrite assignment vector(s)')
+        # self.manual_weight_assignment_overwrite.clicked.connect(lambda _, o = True: self.on_manual_weight_assignment_clicked(o))
+        self.enable_disable.append(self.manual_weight_assignment_overwrite)
+        weight_vector_run_row.addWidget(self.manual_weight_assignment_overwrite)
+        self.manual_weight_assignment_add = QPushButton('Add assignment vector(s)')
+        # self.manual_weight_assignment_add.clicked.connect(lambda _, o = False: self.on_manual_weight_assignment_clicked(o))
+        self.enable_disable.append(self.manual_weight_assignment_add)
+        weight_vector_run_row.addWidget(self.manual_weight_assignment_add)
+
+        weight_vector_layout.addLayout(weight_vector_run_row)
+        weight_vector_tab.setLayout(weight_vector_layout)
+        assignment_creation_tabs.addTab(weight_vector_tab, 'Weighted Vector')
 
         manual_assignment_form.addWidget(assignment_creation_tabs)
 
@@ -2221,6 +2287,118 @@ class MainWindow(QMainWindow):
         for b in self.enable_disable:
             b.setEnabled(True)
 
+
+    def _on_component_feature_changed(self, index):
+        self.weight_vectors[index]['include_combo'].clear()
+        tempfeature = features(self.manual_assignment_file_edit.text(), feature = self.weight_vectors[index]['feature_combo'].currentText(), yn=True)
+        strfeature = []
+        for i in tempfeature:
+            strfeature.append(str(i))
+        self.weight_vectors[index]['include_combo'].addItems(strfeature)
+
+    def on_manual_weight_assignment_clicked(self, overwrite):
+        if overwrite:
+            dlg = QMessageBox(self)
+            dlg.setWindowTitle('User Input Required')
+            dlg.setText('Are you sure you want to overwrite all assignment vectors?\nThis cannot be undone.')
+            dlg.setStandardButtons(QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+            dlg.setDefaultButton(QMessageBox.StandardButton.Yes)
+            dlg.setIcon(QMessageBox.Icon.Question)
+            button = dlg.exec()
+            yn = (button == QMessageBox.StandardButton.Yes)
+            if not yn:
+                return
+
+        updated_settings = self.get_manual_settings()
+        for k in updated_settings:
+            self.current_manual_settings[k] = updated_settings.get(k)
+
+        if self.current_manual_settings.get('preprocessed_path_assignment') == '' or self.current_manual_settings.get('three_include') == '' or self.current_manual_settings.get('three_feature') == '':
+            self.manual_output.append('Inputs not selected.')
+            return
+
+        # disable run button while running
+        self.manual_three_include_combo.setEnabled(False)
+        self.manual_three_feature_combo.setEnabled(False)
+        self.manual_assignment_file_edit.setEnabled(False)
+        for b in self.enable_disable:
+            b.setEnabled(False)
+
+        result = create_3_vectors(pdb_path=self.current_manual_settings.get('preprocessed_path_assignment'), 
+                                  chain1=self.current_manual_settings.get('three_include'),
+                                  feature=self.current_manual_settings.get('three_feature'),)
+        
+
+        if overwrite:
+            self.current_manual_settings['assignment_vectors'] = result
+        elif self.current_manual_settings.get('assignment_vectors') == None:
+            self.current_manual_settings['assignment_vectors'] = result
+        else:
+            for ke, va in result.items():
+                self.current_manual_settings['assignment_vectors'][ke] = va
+        
+        self.manual_output.append(f"{len(self.current_manual_settings.get('assignment_vectors'))} assignment vector(s): {list(self.current_manual_settings.get('assignment_vectors').keys())}")
+
+        self.manual_three_include_combo.setEnabled(True)
+        self.manual_three_feature_combo.setEnabled(True)
+        self.manual_assignment_file_edit.setEnabled(True)
+        for b in self.enable_disable:
+            b.setEnabled(True)
+
+    def _on_vector_remove_row(self, widget, tracking_index):
+        if widget is not None:
+            # Remove it from the layout and delete it
+
+            self.weight_vector_components.removeWidget(widget)
+            self.weight_vectors.pop(tracking_index)
+            self.weight_vectors_included.pop(tracking_index)
+            widget.deleteLater()
+
+    def _on_vector_add_row(self):
+        index = self.weight_vector_components.count()
+        tracking_index = self.weight_vectors_included[-1] + 1
+
+        v = QWidget()
+        v.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
+        vector_component = QHBoxLayout()
+
+        feature_col = QVBoxLayout()
+        label = QLabel('Feature')
+        label.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
+        feature_col.addWidget(label)
+        vector_component_feature_combo = QComboBox()
+        vector_component_feature_combo.activated.connect(lambda _, i=tracking_index: self._on_component_feature_changed(i))
+        feature_col.addWidget(vector_component_feature_combo)
+        self.weight_vectors[tracking_index] = {'feature_combo': vector_component_feature_combo}
+        self.weight_vectors_included.append(tracking_index)
+        vector_component.addLayout(feature_col)
+
+        include_col = QVBoxLayout()
+        label = QLabel('Include')
+        label.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
+        include_col.addWidget(label)
+        vector_component_include_combo = QComboBox()
+        include_col.addWidget(vector_component_include_combo)
+        self.weight_vectors[tracking_index]['include_combo'] = vector_component_include_combo
+        vector_component.addLayout(include_col)
+
+        weight_add_col = QVBoxLayout()
+        weight_row = QHBoxLayout()
+        label = QLabel('Weight')
+        label.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
+        weight_row.addWidget(label)
+        weight_box = QDoubleSpinBox()
+        weight_box.setMinimum(tracking_index)
+        weight_row.addWidget(weight_box)
+        self.weight_vectors[tracking_index]['weight'] = weight_box
+        weight_add_col.addLayout(weight_row)
+        remove_row_button = QPushButton('Add Vector')
+        remove_row_button.clicked.connect(lambda _, w=v, i=tracking_index: self._on_vector_remove_row(w,i))
+        weight_add_col.addWidget(remove_row_button)
+        vector_component.addLayout(include_col)
+        v.setLayout(vector_component)
+
+        self.weight_vector_components.insertWidget(index, v)
 
 
 

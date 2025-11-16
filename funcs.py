@@ -66,25 +66,25 @@ def cif_to_df(path:str):
 
     start_cols_override = {
         '_atom_site.id': 8,
-        '_atom_site.type_symbol': 15,
-        '_atom_site.label_atom_id': 17,
-        '_atom_site.label_alt_id': 23,
-        '_atom_site.label_comp_id': 25,
-        '_atom_site.label_asym_id': 30,
-        '_atom_site.label_entity_id': 32,
-        '_atom_site.label_seq_id': 35,
-        '_atom_site.pdbx_PDB_ins_code': 40,
-        '_atom_site.Cartn_x': 42,
-        '_atom_site.Cartn_y': 51,
-        '_atom_site.Cartn_z': 60,
-        '_atom_site.occupancy': 69,
-        '_atom_site.B_iso_or_equiv': 74,
-        '_atom_site.pdbx_formal_charge': 82,
-        '_atom_site.auth_seq_id': 84,
-        '_atom_site.auth_comp_id': 90,
-        '_atom_site.auth_asym_id': 96,
-        '_atom_site.auth_atom_id': 98,
-        '_atom_site.pdbx_PDB_model_num': 104
+        '_atom_site.type_symbol': 17,
+        '_atom_site.label_atom_id': 19,
+        '_atom_site.label_alt_id': 25,
+        '_atom_site.label_comp_id': 27,
+        '_atom_site.label_asym_id': 32,
+        '_atom_site.label_entity_id': 34,
+        '_atom_site.label_seq_id': 37,
+        '_atom_site.pdbx_PDB_ins_code': 42,
+        '_atom_site.Cartn_x': 44,
+        '_atom_site.Cartn_y': 53,
+        '_atom_site.Cartn_z': 62,
+        '_atom_site.occupancy': 71,
+        '_atom_site.B_iso_or_equiv': 76,
+        '_atom_site.pdbx_formal_charge': 84,
+        '_atom_site.auth_seq_id': 86,
+        '_atom_site.auth_comp_id': 92,
+        '_atom_site.auth_asym_id': 98,
+        '_atom_site.auth_atom_id': 100,
+        '_atom_site.pdbx_PDB_model_num': 106
     }
 
     # merge inferred with overrides (override wins)
@@ -873,8 +873,6 @@ def exposure_low_memory(pdb_path: str,
                     else:
                         sums[ind][m[max(i+1, step):nm]] += block * assignment_vert[ind][m[i]]
                     idx += l
-            print(sums[ind])
-
 
     for indf, d in enumerate(funcs):
         func = d['scoring_function']
