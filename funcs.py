@@ -8,7 +8,7 @@ import plotly.graph_objects as go
 import os, math, time, psutil, warnings, plotly
 from scipy.spatial.distance import pdist
 
-from cif_handling import read_raw_cif, split_header_blocks_footer, parse_loops_from_block_with_offsets, loop_to_dataframe, infer_start_columns, infer_decimal_places, write_loop_from_df_aligned, replace_loop_in_block_text, write_cif_from_parts, canonical_atom_site_order, reorder_df_to_canonical
+from cif_handling import read_raw_cif, split_header_blocks_footer, parse_loops_from_block_with_offsets, loop_to_dataframe, infer_start_columns, infer_decimal_places, write_loop_from_df_aligned, replace_loop_in_block_text, write_cif_from_parts, canonical_atom_site_order, compute_start_cols_standard_first, canonicalize_atom_site_columns
 
 basedir = os.path.dirname(__file__)
 standard_residues = ['LYS', 'LEU', 'THR', 'TYR', 'PRO', 'GLU', 'ASP', 'ILE', 'ALA', 'PHE', 'ARG',
@@ -55,7 +55,7 @@ def cif_to_df(path:str):
 
     canonical_order = canonical_atom_site_order()
 
-    df_canon = reorder_df_to_canonical(df, canonical_order)
+    df_canon = canonicalize_atom_site_columns(df)
 
     # 4) infer start columns and decimals (optional, writer will infer for you if you skip)
     start_cols = infer_start_columns(atom_loop)
@@ -88,21 +88,22 @@ def cif_to_df(path:str):
     }
 
     # merge inferred with overrides (override wins)
-    for k, v in start_cols_override.items():
-        start_cols[k] = v
+    new_starts = compute_start_cols_standard_first(start_cols, df_canon.columns.tolist(), df_canon,
+                                                   min_gap=2, default_width=6, 
+                                                   start_cols_override=start_cols_override)
 
-    cifdata = header, blocks, footer, block_name, block_text, atom_loop, start_cols, decimals_map
+    cifdata = header, blocks, footer, block_name, block_text, atom_loop, new_starts, decimals_map
     return df_canon, cifdata
 
 
 def df_to_cif(outpath, df, cifdata):
-    header, blocks, footer, block_name, block_text, atom_loop, start_cols, decimals = cifdata
+    header, blocks, footer, block_name, block_text, atom_loop, new_starts, decimals = cifdata
     # 6) write aligned loop text
     new_loop_text = write_loop_from_df_aligned(
         df=df,
         loop_info=atom_loop,
         tag_order=df.columns.tolist(),
-        start_cols=start_cols,       # optional: pass explicit mapping or let it be inferred
+        start_cols=new_starts,       # optional: pass explicit mapping or let it be inferred
         decimals_map=decimals,       # optional: pass explicit mapping or let it be inferred
         float_fmt_template=None,     # use default '{:.{p}f}' behaviour inside function
         missing_token='?',

@@ -48,4 +48,5 @@ test.ipynb
 
 # Nonstandard pdbs/cifs #
 #########################
-pdbs/
+pdbs/in/
+pdbs/out/

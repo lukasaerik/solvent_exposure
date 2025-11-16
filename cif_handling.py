@@ -561,6 +561,152 @@ def canonical_atom_site_order() -> List[str]:
     ]
 
 
+def canonicalize_atom_site_columns(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Return a reindexed DataFrame where:
+    - Standard atom_site columns (from standard_atom_site_order()) appear first, in that order.
+    - Any extra (non-standard) columns from the original df are appended after, preserving their original order.
+    - Standard columns missing from df are created and filled with pd.NA (preserving nullable dtypes if you reassign later).
+    """
+    std_order = canonical_atom_site_order()
+    # keep the extras in their original df order
+    extras = [c for c in df.columns if c not in std_order]
+    # final order: only include standard columns (all of them) + extras
+    final_order = std_order + extras
+    # reindex columns — missing columns will be added filled with NaN (which can be cast to pd.NA afterwards)
+    df_reindexed = df.reindex(columns=final_order)
+    # For consistency, convert NaN to pd.NA where appropriate (optional)
+    df_reindexed = df_reindexed.where(pd.notna(df_reindexed), pd.NA)
+    return df_reindexed
+
+
+def compute_start_cols_standard_first(old_start_cols: Dict[str,int],
+                                      new_tag_order: List[str],
+                                      df: pd.DataFrame,
+                                      min_gap: int = 2,
+                                      default_width: int = 8,
+                                      start_cols_override: Dict[str,int] = None) -> Dict[str,int]:
+    """
+    Produce a start-column mapping for new_tag_order that:
+      - Reuses old_start_cols for canonical tags where possible.
+      - Ensures all canonical tags (the canonical list) are placed first (in canonical order).
+      - Applies forced starts from start_cols_override (if provided) for specific tags.
+      - Appends any non-standard columns after the canonical block, preserving their relative order.
+      - Uses df to estimate token widths and avoids overlaps by shifting non-forced columns forward.
+    Parameters:
+      - old_start_cols: mapping of tag->1-based start col from the original file (may be partial)
+      - new_tag_order: desired tags to place (should include canonical tags first if desired)
+      - df: dataframe (used to estimate token widths)
+      - min_gap: minimal gap (in chars) between columns
+      - default_width: fallback width for unknown columns
+      - start_cols_override: mapping tag->1-based forced start columns (these are respected)
+    Returns:
+      mapping { tag -> 1-based start_col } for every tag in new_tag_order
+    """
+    std_order = canonical_atom_site_order()
+    # canonical tags in the new_tag_order, in canonical sequence
+    canonical_in_use = [t for t in std_order if t in new_tag_order]
+    extras_in_use = [t for t in new_tag_order if t not in canonical_in_use]
+
+    start_cols_override = start_cols_override or {}
+
+    # Build widths map (approximate printed width including quoting)
+    widths: Dict[str,int] = {}
+    for t in new_tag_order:
+        if t in df.columns:
+            maxlen = 1
+            for v in df[t].dropna().head(1000):
+                s = str(v)
+                if "'" in s:
+                    s = '"' + s + '"'
+                elif any(ch.isspace() for ch in s) or s.startswith(';') or s == '' or s.startswith('#'):
+                    s = "'" + s.replace("'", "''") + "'"
+                maxlen = max(maxlen, len(s))
+            widths[t] = maxlen
+        else:
+            widths[t] = default_width
+
+    new_starts: Dict[str,int] = {}
+    occupied_spans: List[Dict[str,int]] = []  # list of dicts {'start':int,'end':int,'tag':str}
+
+    # Helper to mark occupied span
+    def occupy(tag: str, start: int):
+        w = widths.get(tag, default_width)
+        end = start + w - 1
+        occupied_spans.append({'start': start, 'end': end, 'tag': tag})
+        return end
+
+    # Helper to find next free position >= proposed (ensuring no overlap and min_gap)
+    def find_non_overlapping_start(proposed: int):
+        # ensure proposed is beyond any occupied span (consider min_gap)
+        # compute maximal end among spans that would overlap
+        new_start = proposed
+        while True:
+            overlap = False
+            for sp in occupied_spans:
+                # if new_start would start <= sp.end+min_gap-1 and new_start+0 <= sp.end -> overlap
+                if new_start <= sp['end'] + min_gap - 1:
+                    # shift new_start beyond this span's end + min_gap
+                    new_start = sp['end'] + min_gap
+                    overlap = True
+            if not overlap:
+                break
+        return new_start
+
+    # Place canonical tags in canonical order
+    # We will honor forced starts from start_cols_override. If forced start overlaps an earlier forced start,
+    # we keep the forced start for that tag and later non-forced tags will be shifted forward.
+    current_pos = 1
+    for tag in canonical_in_use:
+        # if there is a forced start for this tag, use it (and ensure it's at least 1)
+        if tag in start_cols_override:
+            forced_start = max(1, int(start_cols_override[tag]))
+            # if forced_start would overlap previous occupied spans, we still keep forced_start
+            # but make sure to shift later tags forward (occupied spans will reflect this forced placement)
+            start = forced_start
+            # If forced_start is before current_pos, that's OK; we'll occupy and then move current_pos forward
+            end = occupy(tag, start)
+            current_pos = end + min_gap
+            new_starts[tag] = start
+            continue
+
+        # not forced: prefer old_start if available and >= current_pos (so we don't move backwards unnecessarily)
+        if tag in old_start_cols:
+            proposed = int(old_start_cols[tag])
+            # ensure proposed does not collide with existing occupied spans
+            proposed = max(proposed, current_pos)
+            proposed = find_non_overlapping_start(proposed)
+            end = occupy(tag, proposed)
+            new_starts[tag] = proposed
+            current_pos = end + min_gap
+        else:
+            # propose at current_pos (find next non-overlapping)
+            proposed = find_non_overlapping_start(current_pos)
+            end = occupy(tag, proposed)
+            new_starts[tag] = proposed
+            current_pos = end + min_gap
+
+    # Now place extras after canonical block; but keep any forced starts for extras if provided
+    for tag in extras_in_use:
+        if tag in start_cols_override:
+            forced_start = max(1, int(start_cols_override[tag]))
+            start = find_non_overlapping_start(forced_start)
+            end = occupy(tag, start)
+            new_starts[tag] = start
+            # move current_pos if needed
+            current_pos = max(current_pos, end + min_gap)
+            continue
+
+        # otherwise place at current_pos (shift to avoid overlap)
+        proposed = find_non_overlapping_start(current_pos)
+        end = occupy(tag, proposed)
+        new_starts[tag] = proposed
+        current_pos = end + min_gap
+
+    # Ensure the returned mapping contains entries for all tags in new_tag_order (in that order)
+    return {t: int(new_starts[t]) for t in new_tag_order}
+
+
 def reorder_df_to_canonical(df: pd.DataFrame, canonical_order: List[str]) -> pd.DataFrame:
     """
     Return a DataFrame with columns reordered according to canonical_order.
