@@ -6,7 +6,7 @@ import matplotlib.pyplot as plt
 import plotly.express as px
 import plotly.graph_objects as go
 import os, math, time, psutil, warnings, plotly
-from scipy.spatial.distance import pdist
+from scipy.spatial.distance import pdist, cdist
 
 from cif_handling import read_raw_cif, split_header_blocks_footer, parse_loops_from_block_with_offsets, loop_to_dataframe, infer_start_columns, infer_decimal_places, write_loop_from_df_aligned, replace_loop_in_block_text, write_cif_from_parts, canonical_atom_site_order, compute_start_cols_standard_first, canonicalize_atom_site_columns
 
@@ -71,20 +71,20 @@ def cif_to_df(path:str):
         '_atom_site.label_alt_id': 25,
         '_atom_site.label_comp_id': 27,
         '_atom_site.label_asym_id': 32,
-        '_atom_site.label_entity_id': 36,
-        '_atom_site.label_seq_id': 39,
-        '_atom_site.pdbx_PDB_ins_code': 44,
-        '_atom_site.Cartn_x': 46,
-        '_atom_site.Cartn_y': 55,
-        '_atom_site.Cartn_z': 64,
-        '_atom_site.occupancy': 73,
-        '_atom_site.B_iso_or_equiv': 78,
-        '_atom_site.pdbx_formal_charge': 86,
-        '_atom_site.auth_seq_id': 88,
-        '_atom_site.auth_comp_id': 94,
-        '_atom_site.auth_asym_id': 100,
-        '_atom_site.auth_atom_id': 104,
-        '_atom_site.pdbx_PDB_model_num': 110
+        '_atom_site.label_entity_id': 34,
+        '_atom_site.label_seq_id': 37,
+        '_atom_site.pdbx_PDB_ins_code': 42,
+        '_atom_site.Cartn_x': 44,
+        '_atom_site.Cartn_y': 53,
+        '_atom_site.Cartn_z': 62,
+        '_atom_site.occupancy': 71,
+        '_atom_site.B_iso_or_equiv': 76,
+        '_atom_site.pdbx_formal_charge': 84,
+        '_atom_site.auth_seq_id': 86,
+        '_atom_site.auth_comp_id': 92,
+        '_atom_site.auth_asym_id': 98,
+        '_atom_site.auth_atom_id': 100,
+        '_atom_site.pdbx_PDB_model_num': 106
     }
 
     # merge inferred with overrides (override wins)
@@ -921,6 +921,53 @@ def exposure_low_memory(pdb_path: str,
     return out
 
 
+def max_exposure_score(funcs: dict[str, 'function'] | list[dict[str, 'function']],
+                       assignment: None | dict[str, np.ndarray],
+                       subsample,
+                       n_sigmas = 2):
+    if type(funcs) == dict:
+        funcs:list = [funcs]
+    if type(funcs) != list:
+        raise TypeError('funcs must be a dict or list of dict(s).')
+    
+    df = pd.read_pickle('standards/rubisco.pkl')
+    coords_all = np.vstack((df['_atom_site.Cartn_x'].to_numpy(), 
+                            df['_atom_site.Cartn_y'].to_numpy(), 
+                            df['_atom_site.Cartn_z'].to_numpy())).T
+    prot_df = df[df['_atom_site.label_asym_id'] == 'A']
+    coords_prot = np.vstack((prot_df['_atom_site.Cartn_x'].to_numpy(), 
+                             prot_df['_atom_site.Cartn_y'].to_numpy(), 
+                             prot_df['_atom_site.Cartn_z'].to_numpy())).T
+
+    if assignment == None:
+        assignment = {'tot': np.ones(len(coords_all), dtype=bool)}
+
+    # Make do just one subunit
+    coords_prot_sampled = coords_prot[:int(len(coords_prot)/8)]
+
+    # Include n atoms -> faster
+    if subsample != False:
+        if subsample == True:
+            subsample = 1000
+        sampled_indices = np.linspace(0, len(coords_prot_sampled)-1, subsample, dtype=np.uint32)
+        coords_prot_sampled = coords_prot_sampled[sampled_indices]
+    
+    df_out = pd.DataFrame(np.zeros((len(funcs), len(assignment))), index=list(assignment.keys()))
+    
+    distances_all = cdist(coords_prot_sampled, coords_all)
+    for i, d in enumerate(funcs):
+        func = d['scoring_function']
+        constants = d['constants']
+        vals = func(distances_all, constants)
+        for k,v in assignment.items():
+            scores = np.dot(vals, v)
+            mean = np.mean(scores)
+            std = np.std(scores)
+            df_out.loc[k,i] = mean + n_sigmas * std
+    
+    return df_out
+
+
 def average_score(filepath: str, backbone: bool = False) -> list[list[str|float|float]]:
     """
     Averages the solvent exposure scores or local resolution values within a pdb file or defattr file, respectively.
@@ -1128,12 +1175,15 @@ def create_vectors(pdb_path: str, include: str | list, feature: str) -> dict[str
     Returns:
         out (dict[str: numpy array]): A dict with one key-value pair. The name of what is included, as a string, is the key. The value is the assignment vector.
     """    
-    atomic_df, _, cifdata = read_pdb_mmcif(filepath=pdb_path, append_heteroatoms=True)
-
-    if cifdata == 'pdb':
-        df = atomic_df.df['ATOM'].copy()
+    if pdb_path.rsplit('.',1)[1] == 'pkl':
+        df = pd.read_pickle(pdb_path)
     else:
-        df = atomic_df
+        atomic_df, _, cifdata = read_pdb_mmcif(filepath=pdb_path, append_heteroatoms=True)
+
+        if cifdata == 'pdb':
+            df = atomic_df.df['ATOM'].copy()
+        else:
+            df = atomic_df
 
 
     if type(include) == str:
@@ -1741,10 +1791,10 @@ def max_len_for_full_matrix(fraction_of_avail: float = 0.6, dtype: type = np.flo
 
 available_scoring_functions = {'Power': {'scoring_function': power_cutoff,
                                          'constants': {'power': 2, 'cutoff': 50},
-                                         'max_score': 26.5},
+                                         'max_score': 32.08},
                                'Power2': {'scoring_function': power_double_cutoff,
-                                          'constants': {'power': 2, 'cutoff_far': 50, 'cutoff_close': 1.85},
-                                          'max_score': 0},
+                                          'constants': {'power': 3, 'cutoff_far': 50, 'cutoff_close': 1.85},
+                                          'max_score': 30},
                                          }
 
 

@@ -69,7 +69,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from funcs import preprocess, create_3_vectors, create_vectors, exposure, score_v_localres, features, getcols, average_score, visualize, score_v_localres_plotly, standard_residues, available_scoring_functions
+from funcs import preprocess, create_3_vectors, create_vectors, exposure, score_v_localres, features, getcols, average_score, visualize, score_v_localres_plotly, max_exposure_score, max_m_for_full_matrix, standard_residues, available_scoring_functions
 
 basedir = os.path.dirname(__file__)
 
@@ -1624,14 +1624,16 @@ class MainWindow(QMainWindow):
         label.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
         function_max_score_col.addWidget(label)
         max_score = QDoubleSpinBox()
+        max_score.setMinimum(0)
+        max_score.setMaximum(1e6)
         max_score.setValue(self.current_manual_settings.get('function').get('max_score', 0))
         function_max_score_col.addWidget(max_score)
         manual_function.addLayout(function_max_score_col)
         self.functions[0]['max_score'] = max_score
 
         button_col = QVBoxLayout()
-        reset_row_button = QPushButton('Reset Row')
-        reset_row_button.clicked.connect(lambda _, w=m: self._on_manual_reset_row(w, 0))
+        reset_row_button = QPushButton('Calc Max Score')
+        reset_row_button.clicked.connect(lambda _, w=m: self._on_calculate_maximum_score_clicked(w, 0))
         button_col.addWidget(reset_row_button)
         add_row_button = QPushButton('Add Function')
         add_row_button.clicked.connect(self._on_manual_add_row)
@@ -2356,8 +2358,6 @@ class MainWindow(QMainWindow):
                                                       include=include,
                                                       feature=feature).values())[0] * weight
         
-        self.manual_output.append(f'{result}')
-
         if overwrite:
             self.current_manual_settings['assignment_vectors'] = {self.current_manual_settings.get('vector_name'): result}
         elif self.current_manual_settings.get('assignment_vectors') == None:
@@ -2502,14 +2502,16 @@ class MainWindow(QMainWindow):
             label.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
             function_max_score_col.addWidget(label)
             max_score = QDoubleSpinBox()
+            max_score.setMinimum(0)
+            max_score.setMaximum(1e6)
             max_score.setValue(available_scoring_functions.get(op).get('max_score', 0))
             function_max_score_col.addWidget(max_score)
             manual_function.addLayout(function_max_score_col)
             self.functions[index]['max_score'] = max_score
 
             button_col = QVBoxLayout()
-            reset_row_button = QPushButton('Reset Row')
-            reset_row_button.clicked.connect(lambda _, w=m, i=index: self._on_manual_reset_row(w,i))
+            reset_row_button = QPushButton('Calc Max Score')
+            reset_row_button.clicked.connect(lambda _, w=m, i=index: self._on_calculate_maximum_score_clicked(w,i))
             button_col.addWidget(reset_row_button)
             if index == 0:
                 add_row_button = QPushButton('Add Function')
@@ -2564,14 +2566,16 @@ class MainWindow(QMainWindow):
         label.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
         function_max_score_col.addWidget(label)
         max_score = QDoubleSpinBox()
+        max_score.setMinimum(0)
+        max_score.setMaximum(1e6)
         max_score.setValue(self.current_manual_settings.get('function').get('max_score', 0))
         function_max_score_col.addWidget(max_score)
         manual_function.addLayout(function_max_score_col)
         self.functions[index]['max_score'] = max_score
 
         button_col = QVBoxLayout()
-        reset_row_button = QPushButton('Reset Row')
-        reset_row_button.clicked.connect(lambda _, w=m, i=index: self._on_manual_reset_row(w,i))
+        reset_row_button = QPushButton('Calc Max Score')
+        reset_row_button.clicked.connect(lambda _, w=m, i=index: self._on_calculate_maximum_score_clicked(w,i))
         button_col.addWidget(reset_row_button)
         remove_row_button = QPushButton('Remove Function')
         remove_row_button.clicked.connect(lambda _, w=m, i=index: self._on_manual_remove_row(w,i))
@@ -2580,6 +2584,61 @@ class MainWindow(QMainWindow):
         m.setLayout(manual_function)
 
         self.manual_functions.insertWidget(index, m)
+
+    def _on_calculate_maximum_score_clicked(self, widget, index):
+        updated_settings = self.get_manual_settings()
+        for k in updated_settings:
+            self.current_manual_settings[k] = updated_settings.get(k)
+
+        tempconstants = {}
+        for key, value in self.functions[index].items():
+            if key == 'function':
+                temp = available_scoring_functions[value.currentText()].copy()
+            elif key == 'max_score':
+                temp[key] = 0
+            elif float(value.text()) % 1 == 0:
+                tempconstants[key] = int(float(value.text()))
+            else:
+                tempconstants[key] = float(value.text())
+            temp['constants'] = tempconstants.copy()
+
+        ass=None
+
+        if self.current_manual_settings.get('calculate_assignment'):
+            dlg = QMessageBox(self)
+            dlg.setWindowTitle('User Input Required')
+            dlg.setText('Would you like to calculate the maximum score based on the current weighted vector?\nNote: Must have been prepared weighted vector using an mmCIF file.')
+            dlg.setStandardButtons(QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+            dlg.setDefaultButton(QMessageBox.StandardButton.No)
+            dlg.setIcon(QMessageBox.Icon.Question)
+            button = dlg.exec()
+            yn = (button == QMessageBox.StandardButton.Yes)
+            if yn:
+                for i, idx in enumerate(self.weight_vectors_included):
+                    feature = self.weight_vectors[idx]['feature_combo'].currentText()
+                    include = self.weight_vectors[idx]['include_combo'].currentData()
+                    weight = float(self.weight_vectors[idx]['weight'].text())
+                    if weight % 1 == 0:
+                        weight = int(weight)
+                    if i == 0:
+                        result = list(create_vectors(pdb_path='standards/rubisco.pkl', 
+                                                     include=include,
+                                                     feature=feature).values())[0] * weight
+                    else:
+                        result = result + list(create_vectors(pdb_path='standards/rubisco.pkl', 
+                                                              include=include,
+                                                              feature=feature).values())[0] * weight
+                ass = {'weighted': result}
+
+
+        df_out = max_exposure_score(funcs=temp, assignment=ass, subsample=min(1600, max_m_for_full_matrix(276451,0.8)))
+
+        self.functions[index]['max_score'].setValue(df_out.iloc[0,0])
+        self.manual_output.append(f'Max score calculated: {df_out.iloc[0,0]:.2f}')
+        if df_out.shape != (1,1):
+            self.manual_output.append(f'{df_out}')
+            self.manual_output.append('WARNING: multiple assignment vectors provided for max score calculation. First entry used to set max score.')
+
 
     def on_run_manual_calculate_clicked(self):
         # gather values
