@@ -71,20 +71,20 @@ def cif_to_df(path:str):
         '_atom_site.label_alt_id': 25,
         '_atom_site.label_comp_id': 27,
         '_atom_site.label_asym_id': 32,
-        '_atom_site.label_entity_id': 34,
-        '_atom_site.label_seq_id': 37,
-        '_atom_site.pdbx_PDB_ins_code': 42,
-        '_atom_site.Cartn_x': 44,
-        '_atom_site.Cartn_y': 53,
-        '_atom_site.Cartn_z': 62,
-        '_atom_site.occupancy': 71,
-        '_atom_site.B_iso_or_equiv': 76,
-        '_atom_site.pdbx_formal_charge': 84,
-        '_atom_site.auth_seq_id': 86,
-        '_atom_site.auth_comp_id': 92,
-        '_atom_site.auth_asym_id': 98,
-        '_atom_site.auth_atom_id': 100,
-        '_atom_site.pdbx_PDB_model_num': 106
+        '_atom_site.label_entity_id': 36,
+        '_atom_site.label_seq_id': 39,
+        '_atom_site.pdbx_PDB_ins_code': 44,
+        '_atom_site.Cartn_x': 46,
+        '_atom_site.Cartn_y': 55,
+        '_atom_site.Cartn_z': 64,
+        '_atom_site.occupancy': 73,
+        '_atom_site.B_iso_or_equiv': 78,
+        '_atom_site.pdbx_formal_charge': 86,
+        '_atom_site.auth_seq_id': 88,
+        '_atom_site.auth_comp_id': 94,
+        '_atom_site.auth_asym_id': 100,
+        '_atom_site.auth_atom_id': 104,
+        '_atom_site.pdbx_PDB_model_num': 110
     }
 
     # merge inferred with overrides (override wins)
@@ -126,7 +126,7 @@ def read_pdb_mmcif(filepath: str, append_heteroatoms: 'function' = None) -> Pand
         append_heteroatoms (function, optional): If there are heteroatoms in the read file, the output of this function decides if any heteroatoms are added to the chain atoms for later use. If False, any are removed.
 
     Returns:
-        atomic_df,filename (PandasPdb, str): The PandasPdb generated from the read file and the filename (basename) without extention.
+        atomic_df,filename,cifdata (PandasPdb, str): The PandasPdb generated from the read file and the filename (basename) without extention.
     """
 
     filename = os.path.basename(filepath)
@@ -521,12 +521,14 @@ def power_cutoff(d: float|np.ndarray, constants: dict, eps: float = np.inf) -> f
     Vector-safe (accepts scalars or numpy arrays for faster operation) version of scoring function. 
     - Returns 0 for distances, d, above 0
     - Returns d ** -power for distances within cutoff
-    - Returns inf for distances ≈ 0 -> atom does not count towards its own score
+    - Returns 0 for distances ≈ 0 -> atom does not count towards its own score
     - Replaces any nan/inf with finite numbers (0.0) for safety
 
     Args:
         d (scalar or numpy array): Distance between two atoms or array of distances between atoms.
-        cutoff (float, optional): Cutoff distance; inputs greater than this will return 0.
+        constant (dict): Contains the following key:value pairs:
+            'power': scoring function is distance^-power
+            'cutoff': at distances greater than cutoff, the scoring function returns 0.
         eps (float, optional): Epsilon used for distance ≈ 0. Purposefully infinite so that each atom does not contribute to its own score.
 
     Returns:
@@ -561,12 +563,15 @@ def power_double_cutoff(d: float|np.ndarray, constants: dict, eps: float = np.in
     Vector-safe (accepts scalars or numpy arrays for faster operation) version of scoring function. 
     - Returns 0 for distances, d, above 0
     - Returns d ** -power for distances within cutoff
-    - Returns inf for distances ≈ 0 -> atom does not count towards its own score
+    - Returns 0 for distances ≈ 0 -> atom does not count towards its own score
     - Replaces any nan/inf with finite numbers (0.0) for safety
 
     Args:
         d (scalar or numpy array): Distance between two atoms or array of distances between atoms.
-        cutoff (float, optional): Cutoff distance; inputs greater than this will return 0.
+        constant (dict): Contains the following key:value pairs:
+            'power': scoring function is distance^-power
+            'cutoff_far': at distances greater than cutoff_far, the scoring function returns 0.
+            'cutoff_close': at distances less than cutoff_close, the scoring function returns 0.
         eps (float, optional): Epsilon used for distance ≈ 0. Purposefully infinite so that each atom does not contribute to its own score.
 
     Returns:
@@ -1694,6 +1699,26 @@ def max_n_for_full_matrix(fraction_of_avail: float = 0.6, dtype: type = np.float
     # n^2 * bytes_per_element <= max_bytes  ->  n <= sqrt(max_bytes/bytes_per_element)
     return int(math.floor(math.sqrt(max_bytes / bytes_per_element)))
 
+def max_m_for_full_matrix(n: int, fraction_of_avail: float = 0.6, dtype: type = np.float64) -> int:
+    """
+    Calculates size, m, of an m x n matrix with specified dtype that can be generated when using a specified fraction of available memory. 
+    Useful for running large cdist calculations safely
+
+    Args:
+        n (int): Defined row length. e.g., total number of atoms in larger cdist entry.
+        fraction_of_avail (float, optional): Maximum fraction of available memory to use for the matrix.
+        dtype (type, optional): data type of matrix elements.
+
+    Returns:
+        (int): Size, n, of the largest n x n matrix to use, at maximum, the fraction of availale memory.
+    """
+    # fraction_of_avail: fraction of available RAM to use for the matrix
+    avail = psutil.virtual_memory().available
+    bytes_per_element = np.dtype(dtype).itemsize
+    max_bytes = int(avail * fraction_of_avail)
+    # n * m * bytes_per_element <= max_bytes  ->  m <= (max_bytes/bytes_per_element)/n
+    return int(math.floor(max_bytes / bytes_per_element / n))
+
 
 def max_len_for_full_matrix(fraction_of_avail: float = 0.6, dtype: type = np.float64) -> int:
     """
@@ -1718,7 +1743,7 @@ available_scoring_functions = {'Power': {'scoring_function': power_cutoff,
                                          'constants': {'power': 2, 'cutoff': 50},
                                          'max_score': 26.5},
                                'Power2': {'scoring_function': power_double_cutoff,
-                                          'constants': {'power': 3, 'cutoff_far': 50, 'cutoff_close': 2},
+                                          'constants': {'power': 2, 'cutoff_far': 50, 'cutoff_close': 1.85},
                                           'max_score': 0},
                                          }
 

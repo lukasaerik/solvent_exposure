@@ -1299,6 +1299,7 @@ class MainWindow(QMainWindow):
             'single_feature': '',
             'three_include': '',
             'three_feature': '',
+            'vector_name': 'name',
             'assignment_vectors': None,
             'preprocessed_path_calculate': '',
             'calculate_folder_path': os.path.join(basedir, 'pdbs', 'out'),
@@ -1490,7 +1491,7 @@ class MainWindow(QMainWindow):
         label.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
         feature_col.addWidget(label)
         vector_component_feature_combo = QComboBox()
-        # vector_component_feature_combo.activated.connect(lambda _, i=0: self._on_component_feature_changed(i))
+        vector_component_feature_combo.activated.connect(lambda _, i=0: self._on_component_feature_changed(i))
         feature_col.addWidget(vector_component_feature_combo)
         self.weight_vectors[0] = {'feature_combo': vector_component_feature_combo}
         self.weight_vectors_included.append(0)
@@ -1500,7 +1501,7 @@ class MainWindow(QMainWindow):
         label = QLabel('Include')
         label.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
         include_col.addWidget(label)
-        vector_component_include_combo = QComboBox()
+        vector_component_include_combo = CheckableComboBox()
         include_col.addWidget(vector_component_include_combo)
         self.weight_vectors[0]['include_combo'] = vector_component_include_combo
         vector_component.addLayout(include_col)
@@ -1516,7 +1517,7 @@ class MainWindow(QMainWindow):
         self.weight_vectors[0]['weight'] = weight_box
         weight_add_col.addLayout(weight_row)
         add_row_button = QPushButton('Add Vector')
-        # add_row_button.clicked.connect(self._on_vector_add_row)
+        add_row_button.clicked.connect(self._on_vector_add_row)
         weight_add_col.addWidget(add_row_button)
         vector_component.addLayout(weight_add_col)
         v.setLayout(vector_component)
@@ -1525,13 +1526,23 @@ class MainWindow(QMainWindow):
         self.weight_vector_components_widget.setLayout(self.weight_vector_components)
         weight_vector_layout.addWidget(self.weight_vector_components_widget)
 
+        weight_vector_name_row = QHBoxLayout()
+        label = QLabel('Name:')
+        label.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
+        weight_vector_name_row.addWidget(label)
+        self.manual_weight_vector_name = QLineEdit()
+        self.manual_weight_vector_name.setText(self.current_manual_settings.get('vector_name', 'name'))
+        weight_vector_name_row.addWidget(self.manual_weight_vector_name)
+        weight_vector_layout.addLayout(weight_vector_name_row)
+
+
         weight_vector_run_row = QHBoxLayout()
         self.manual_weight_assignment_overwrite = QPushButton('Overwrite assignment vector(s)')
-        # self.manual_weight_assignment_overwrite.clicked.connect(lambda _, o = True: self.on_manual_weight_assignment_clicked(o))
+        self.manual_weight_assignment_overwrite.clicked.connect(lambda _, o = True: self.on_manual_weight_assignment_clicked(o))
         self.enable_disable.append(self.manual_weight_assignment_overwrite)
         weight_vector_run_row.addWidget(self.manual_weight_assignment_overwrite)
         self.manual_weight_assignment_add = QPushButton('Add assignment vector(s)')
-        # self.manual_weight_assignment_add.clicked.connect(lambda _, o = False: self.on_manual_weight_assignment_clicked(o))
+        self.manual_weight_assignment_add.clicked.connect(lambda _, o = False: self.on_manual_weight_assignment_clicked(o))
         self.enable_disable.append(self.manual_weight_assignment_add)
         weight_vector_run_row.addWidget(self.manual_weight_assignment_add)
 
@@ -2135,6 +2146,9 @@ class MainWindow(QMainWindow):
         self.manual_single_feature_combo.addItems(getcols(result, True))
         self.manual_three_feature_combo.clear()
         self.manual_three_feature_combo.addItems(getcols(result, True))
+        for key, value in self.weight_vectors.items():
+                value['feature_combo'].clear()
+                value['feature_combo'].addItems(getcols(result, True))
         self.manual_output.append(f"Preprocessing complete. File {result} saved.")
 
     def on_worker_manual_preprocess_error(self, err_str):
@@ -2170,6 +2184,9 @@ class MainWindow(QMainWindow):
             self.manual_single_feature_combo.addItems(getcols(fname, True))
             self.manual_three_feature_combo.clear()
             self.manual_three_feature_combo.addItems(getcols(fname, True))
+            for key, value in self.weight_vectors.items():
+                value['feature_combo'].clear()
+                value['feature_combo'].addItems(getcols(fname, True))
 
     def _on_single_feature_changed(self):
         self.manual_single_include_combo.clear()
@@ -2324,18 +2341,29 @@ class MainWindow(QMainWindow):
         for b in self.enable_disable:
             b.setEnabled(False)
 
-        result = create_3_vectors(pdb_path=self.current_manual_settings.get('preprocessed_path_assignment'), 
-                                  chain1=self.current_manual_settings.get('three_include'),
-                                  feature=self.current_manual_settings.get('three_feature'),)
+        for i, idx in enumerate(self.weight_vectors_included):
+            feature = self.weight_vectors[idx]['feature_combo'].currentText()
+            include = self.weight_vectors[idx]['include_combo'].currentData()
+            weight = float(self.weight_vectors[idx]['weight'].text())
+            if weight % 1 == 0:
+                weight = int(weight)
+            if i == 0:
+                result = list(create_vectors(pdb_path=self.current_manual_settings.get('preprocessed_path_assignment'), 
+                                             include=include,
+                                             feature=feature).values())[0] * weight
+            else:
+                result = result + list(create_vectors(pdb_path=self.current_manual_settings.get('preprocessed_path_assignment'), 
+                                                      include=include,
+                                                      feature=feature).values())[0] * weight
         
+        self.manual_output.append(f'{result}')
 
         if overwrite:
-            self.current_manual_settings['assignment_vectors'] = result
+            self.current_manual_settings['assignment_vectors'] = {self.current_manual_settings.get('vector_name'): result}
         elif self.current_manual_settings.get('assignment_vectors') == None:
-            self.current_manual_settings['assignment_vectors'] = result
+            self.current_manual_settings['assignment_vectors'] = {self.current_manual_settings.get('vector_name'): result}
         else:
-            for ke, va in result.items():
-                self.current_manual_settings['assignment_vectors'][ke] = va
+            self.current_manual_settings['assignment_vectors'][self.current_manual_settings.get('vector_name')] = result
         
         self.manual_output.append(f"{len(self.current_manual_settings.get('assignment_vectors'))} assignment vector(s): {list(self.current_manual_settings.get('assignment_vectors').keys())}")
 
@@ -2367,6 +2395,7 @@ class MainWindow(QMainWindow):
         label.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
         feature_col.addWidget(label)
         vector_component_feature_combo = QComboBox()
+        vector_component_feature_combo.addItems(getcols(self.manual_assignment_file_edit.text(), True))
         vector_component_feature_combo.activated.connect(lambda _, i=tracking_index: self._on_component_feature_changed(i))
         feature_col.addWidget(vector_component_feature_combo)
         self.weight_vectors[tracking_index] = {'feature_combo': vector_component_feature_combo}
@@ -2377,7 +2406,7 @@ class MainWindow(QMainWindow):
         label = QLabel('Include')
         label.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
         include_col.addWidget(label)
-        vector_component_include_combo = QComboBox()
+        vector_component_include_combo = CheckableComboBox()
         include_col.addWidget(vector_component_include_combo)
         self.weight_vectors[tracking_index]['include_combo'] = vector_component_include_combo
         vector_component.addLayout(include_col)
@@ -2388,14 +2417,14 @@ class MainWindow(QMainWindow):
         label.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
         weight_row.addWidget(label)
         weight_box = QDoubleSpinBox()
-        weight_box.setMinimum(tracking_index)
+        weight_box.setMinimum(0)
         weight_row.addWidget(weight_box)
         self.weight_vectors[tracking_index]['weight'] = weight_box
         weight_add_col.addLayout(weight_row)
-        remove_row_button = QPushButton('Add Vector')
+        remove_row_button = QPushButton('Remove Vector')
         remove_row_button.clicked.connect(lambda _, w=v, i=tracking_index: self._on_vector_remove_row(w,i))
         weight_add_col.addWidget(remove_row_button)
-        vector_component.addLayout(include_col)
+        vector_component.addLayout(weight_add_col)
         v.setLayout(vector_component)
 
         self.weight_vector_components.insertWidget(index, v)
@@ -2638,6 +2667,7 @@ class MainWindow(QMainWindow):
             'single_feature': self.manual_single_feature_combo.currentText(),
             'three_include': self.manual_three_include_combo.currentData(),
             'three_feature': self.manual_three_feature_combo.currentText(),
+            'vector_name': self.manual_weight_vector_name.text(),
             'preprocessed_path_calculate': self.manual_calculate_file_edit.text(),
             'calculate_folder_path': self.manual_calculate_folder_edit.text(),
             'calculate_assignment': self.calculate_assignment,
