@@ -14,6 +14,25 @@ basedir = os.path.dirname(__file__)
 standard_residues = ['LYS', 'LEU', 'THR', 'TYR', 'PRO', 'GLU', 'ASP', 'ILE', 'ALA', 'PHE', 'ARG',
                      'VAL', 'GLN', 'GLY', 'SER', 'TRP', 'CYS', 'HIS', 'ASN', 'MET', 'SEC', 'PYL']
 '''3 letter codes for all standard amino acid residues.'''
+Cs = ['C', 'CA', 'CB', 'CD', 'CE', 'CG', 'CH', 'CZ', 
+      'CD1', 'CD2', 'CE1', 'CE2', 'CE3', 'CG1', 'CG2', 'CG3', 'CH1', 'CH2', 'CH3', 'CZ1', 'CZ2', 'CZ3',
+      'C1', 'C2', 'C3', 'C4', 'C5', 'C6', 'C7', 'C8', 'C9', 'C10', 'C11', 'C12', 'C13', 'C14',
+      "C1'", "C2'", "C3'", "C4'", "C5'",]
+Ns = ['N', 'ND', 'NE', 'NZ',
+      'ND1', 'ND2', 'NE1', 'NE2', 'NH1', 'NH2',
+      'N1', 'N2', 'N3', 'N4', 'N5', 'N6', 'N7', 'N8', 'N9',]
+Os = ['O', 'OG', 'OH', 'OW', 'OXT',
+      'OD1', 'OD2', 'OE1', 'OE2', 'OG1', 'OG2', 'OP1', 'OP2', 'OP3',
+      'O1', 'O2', 'O3', 'O4', 'O5', 'O6',
+      "O2'", "O3'", "O4'", "O5'",
+      'O1A', 'O1B', 'O1G', 'O2A', 'O2B', 'O2G' 'O3A', 'O3B', 'O3G',]
+Ss = ['S', 'SD', 'SE', 'SG', 'S1',]
+Ps = ['P', 'PA', 'PB', 'PG']
+NAs= ['NA']
+MGs= ['MG']
+ZNs= ['ZN']
+standard_atoms = Cs + Ns + Os + Ss + Ps
+all_atoms = standard_atoms + NAs + MGs + ZNs
 
 
 def yes_no(text: str) -> bool:
@@ -67,24 +86,24 @@ def cif_to_df(path:str):
     start_cols_override = {
         '_atom_site.id': 8,
         '_atom_site.type_symbol': 17,
-        '_atom_site.label_atom_id': 19,
-        '_atom_site.label_alt_id': 25,
-        '_atom_site.label_comp_id': 27,
-        '_atom_site.label_asym_id': 32,
-        '_atom_site.label_entity_id': 34,
-        '_atom_site.label_seq_id': 37,
-        '_atom_site.pdbx_PDB_ins_code': 42,
-        '_atom_site.Cartn_x': 44,
-        '_atom_site.Cartn_y': 53,
-        '_atom_site.Cartn_z': 62,
-        '_atom_site.occupancy': 71,
-        '_atom_site.B_iso_or_equiv': 76,
-        '_atom_site.pdbx_formal_charge': 84,
-        '_atom_site.auth_seq_id': 86,
-        '_atom_site.auth_comp_id': 92,
-        '_atom_site.auth_asym_id': 98,
-        '_atom_site.auth_atom_id': 100,
-        '_atom_site.pdbx_PDB_model_num': 106
+        '_atom_site.label_atom_id': 20,
+        '_atom_site.label_alt_id': 26,
+        '_atom_site.label_comp_id': 28,
+        '_atom_site.label_asym_id': 33,
+        '_atom_site.label_entity_id': 35,
+        '_atom_site.label_seq_id': 38,
+        '_atom_site.pdbx_PDB_ins_code': 43,
+        '_atom_site.Cartn_x': 45,
+        '_atom_site.Cartn_y': 54,
+        '_atom_site.Cartn_z': 63,
+        '_atom_site.occupancy': 72,
+        '_atom_site.B_iso_or_equiv': 77,
+        '_atom_site.pdbx_formal_charge': 85,
+        '_atom_site.auth_seq_id': 87,
+        '_atom_site.auth_comp_id': 93,
+        '_atom_site.auth_asym_id': 99,
+        '_atom_site.auth_atom_id': 101,
+        '_atom_site.pdbx_PDB_model_num': 107
     }
 
     # merge inferred with overrides (override wins)
@@ -351,7 +370,7 @@ def preprocess_iterate(pdb_path: str,
 def preprocess(pdb_path: str,
                pre_path: str,
                yn: 'function',
-               include: list = ['C', 'N', 'O', 'S'],
+               include: list = standard_atoms,
                redefine_chains: bool = False) -> str:
     """
     Simple preprocessing of pdb and mmcif files. 
@@ -384,18 +403,28 @@ def preprocess(pdb_path: str,
         if c not in atoms.columns:
             raise KeyError(f"Expected column '{c}' in ATOM dataframe")
         
-    # 1) Base mask: first-letter of atom_name is in include AND occupancy > 0.5
-    if cifdata == 'pdb':
-        atom_prefix = atoms[atom_name].astype(str).str[0]
-        mask_gt_half = (atom_prefix.isin(include)) & (atoms[occupancy].astype(float) > 0.5)
-    elif include == ['C', 'N', 'O', 'S']:
-        atom_prefix = atoms["_atom_site.type_symbol"].astype(str)
-        mask_gt_half = (atom_prefix.isin(['C', 'N', 'O', 'S', 'Se'])) & (atoms[occupancy].astype(float) > 0.5)
-    else:
-        atom_prefix = atoms[atom_name].astype(str).str[0]
-        mask_gt_half = (atom_prefix.isin(include)) & (atoms[occupancy].astype(float) > 0.5)
+    deleted_atoms = set()
+    for entry in atoms[atom_name].drop_duplicates().tolist():
+        if entry not in include and entry not in deleted_atoms:
+            include_atom = yn(f"Would you like to include atom {entry}?")
+            if include_atom:
+                include.append(entry)
+            else:
+                deleted_atoms.add(entry)
 
-    # 2) Handle occupancy == 0.5: include only the first occurrence per (chain_id, residue_number, atom_name)
+        
+    # Base mask: atom_name is in include AND occupancy > 0.5
+    # if cifdata == 'pdb':
+        # atom_prefix = atoms[atom_name].astype(str).str[0]
+    mask_gt_half = (atoms[atom_name].isin(include)) & (atoms[occupancy].astype(float) > 0.5)
+    # elif include == ['C', 'N', 'O', 'S']:
+    #     atom_prefix = atoms["_atom_site.type_symbol"].astype(str)
+    #     mask_gt_half = (atom_prefix.isin(['C', 'N', 'O', 'S', 'Se', 'P'])) & (atoms[occupancy].astype(float) > 0.5)
+    # else:
+    #     atom_prefix = atoms[atom_name].astype(str).str[0]
+    #     mask_gt_half = (atom_prefix.isin(include)) & (atoms[occupancy].astype(float) > 0.5)
+
+    # Handle occupancy == 0.5: include only the first occurrence per (chain_id, residue_number, atom_name)
     half_mask = atoms[occupancy].astype(float) == 0.5
     if half_mask.any():
         # Build a string key safely (cast to str first)
@@ -415,7 +444,7 @@ def preprocess(pdb_path: str,
     # combine masks: either >0.5 or first half-occurrence
     keep_mask = mask_gt_half | first_half
 
-    # 3) Non-standard residues: prompt once per residue and include/exclude all atoms of that residue
+    # Non-standard residues: prompt once per residue and include/exclude all atoms of that residue
     std_res = set(standard_residues)
     residue_names = pd.Index(atoms[residue_name].astype(str).unique())
     nonstandard = [r for r in residue_names if r not in std_res]
@@ -478,6 +507,22 @@ def preprocess(pdb_path: str,
         df_to_cif(outpath=out_path, df=df, cifdata=cifdata)
 
     return out_path
+
+
+def weights_from_series(series, yn):
+    weights = 12 * np.asarray(series.isin(Cs)) + 14 * np.asarray(series.isin(Ns)) + 16 * np.asarray(series.isin(Os)) + 32 * np.asarray(series.isin(Ss)) + 31 * np.asarray(series.isin(Ps)) + 23 * np.asarray(series.isin(NAs)) + 24.3 * np.asarray(series.isin(MGs)) + 65.4 * np.asarray(series.isin(ZNs))
+    masses = {'C':12,'N':14,'O':16,'S':32,'P':31}
+    for entry in series.drop_duplicates().tolist():
+        if entry not in all_atoms:
+            if entry[0] in ['C', 'N', 'O', 'S', 'P']:
+                include_atom = yn(f"Atom {entry} not recognized. Is it ok to treat this as element {entry[0]}?")
+                if include_atom:
+                    weights = weights + np.asarray(series==entry) * masses[entry[0]]
+                else:
+                    yn(f'Atom {entry} not recognized. Please update code.')
+            else:
+                yn(f'Atom {entry} not recognized. Please update code.')
+    return weights
 
 
 def f2_cutoff(d: float|np.ndarray, cutoff: float = 50.0, eps: float = np.inf) -> float|np.ndarray:
@@ -607,10 +652,12 @@ def power_double_cutoff(d: float|np.ndarray, constants: dict, eps: float = np.in
 
 def exposure(pdb_path: str,
              out_path: str,
+             yn: 'function',
              assignment: None | dict[str, np.ndarray] = None, 
-             funcs: dict[str, 'function'] | list[dict[str, 'function']] = {'scoring_function': power_cutoff,
-                                                                           'constants': {'power': 2, 'cutoff': 50},
-                                                                           'max_score': 26.5},
+             funcs: dict[str, 'function'] | list[dict[str, 'function']] = {'scoring_function': power_double_cutoff,
+                                                                           'constants': {'power': 2, 'cutoff_far': 50, 'cutoff_close':1.85},
+                                                                           'max_score': {'weight_by_amu': 423.01, 'unweighted': 31.04}},
+             weight_by_amu: bool = True,
              progress_callback: 'function' = None) -> list[list[str|float|float]]:
     """
     Saves a pdb with b-factor set to the solvent exposure score for all atoms in the pdb supplied. 
@@ -620,13 +667,12 @@ def exposure(pdb_path: str,
     Args:
         pdb_path (str): The path of the file to use in score calculation (typically pdb or mmcif). It has n atoms.
         out_path (str): The path of the folder inside which the output pdb will be saved.
+        yn (function): For obtaining user input for yes/no questions.
         assignment (None or dict[str, numpy array], optional): Dictionary with value(s) that are length n numpy arrays. 
             As standard, these are boolean arrays used to obtain solvent exposure scores only accounting for the contribution of atoms with entries = True/1 while ignore the contribution of atoms with entries False/0. 
             In principle, this can be used for any algebraic operation, including calculating solvent exposure scores with weighted scores from each atom.
-        funcs (dict[str: function], optional): Dictionary with value(s) calling scoring function(s). 
-            Keys are used for output file naming, in this case 2c50 meaning d**-2 scoring function with a distance cutoff at 50 Å (the default scoring function).
-        max_scores (dict[str: float], optional): Dictionary with value(s) corresponding to the maximum value for the corresponding scoring function(s). 
-            The keys used should be those used as the keys in funcs.
+        funcs (dict[str: function], optional): Dictionary with value(s) calling scoring function(s) and their associated constant(s). 
+        weight_by_amu (bool, optional): If True, as default, weights contributions to score by atomic mass of the paired atom. If False, doesn't.
         progress_callback (None or function, optional): If None, as default, progress messages are printed. If a function is given, custom behaviour can be implemented, such as for printing in a GUI during the run. 
 
     Returns:
@@ -645,10 +691,10 @@ def exposure(pdb_path: str,
     atomic_df, filename, cifdata = read_pdb_mmcif(filepath=pdb_path, append_heteroatoms=True)
     if cifdata == 'pdb':
         df = atomic_df.df['ATOM'].copy()
-        x_coord, y_coord, z_coord, b_factor = 'x_coord', 'y_coord', 'z_coord', 'b_factor'
+        x_coord, y_coord, z_coord, b_factor, atom_name = 'x_coord', 'y_coord', 'z_coord', 'b_factor', 'atom_name'
     else:
         df = atomic_df
-        x_coord, y_coord, z_coord, b_factor = '_atom_site.Cartn_x', '_atom_site.Cartn_y', '_atom_site.Cartn_z', '_atom_site.B_iso_or_equiv'
+        x_coord, y_coord, z_coord, b_factor, atom_name = '_atom_site.Cartn_x', '_atom_site.Cartn_y', '_atom_site.Cartn_z', '_atom_site.B_iso_or_equiv', '_atom_site.label_atom_id'
     
     coords = np.vstack((df[x_coord].to_numpy(), 
                         df[y_coord].to_numpy(), 
@@ -656,6 +702,11 @@ def exposure(pdb_path: str,
     out = []
 
     n = coords.shape[0]
+
+    if assignment == None:
+        assignment = {'': np.ones(n, dtype=bool)}
+    if type(assignment) != dict:
+        raise TypeError("assignment must be None or dict")
 
     mx = max_len_for_full_matrix()
 
@@ -669,7 +720,10 @@ def exposure(pdb_path: str,
         else:
             print(msg)
 
-        return exposure_low_memory(pdb_path=pdb_path, out_path=out_path, max_atoms=mx, assignment=assignment, funcs=funcs, progress_callback=progress_callback)
+        return exposure_low_memory(pdb_path=pdb_path, out_path=out_path, yn=yn, max_atoms=mx, assignment=assignment, funcs=funcs, weight_by_amu=weight_by_amu, progress_callback=progress_callback)
+
+    if weight_by_amu:
+        weight_vector = weights_from_series(series=df[atom_name], yn=yn)
 
     d_cond = pdist(coords)  
     for d in funcs:
@@ -678,71 +732,52 @@ def exposure(pdb_path: str,
         funcname = ''
         for ke, va in constants.items():
             funcname += ke[0] + str(va).replace('.','point')
-        max_score = d['max_score']
+        if weight_by_amu:
+            max_score = d['max_score']['weight_by_amu']
+        else:
+            max_score = d['max_score']['unweighted']
         vals = func(d_cond, constants)
-        if assignment == None:
-            sums = np.zeros(n, dtype=vals.dtype)
+
+        for k, assignment_vert in assignment.items():
+            if weight_by_amu:
+                assignment_vert = np.multiply(assignment_vert, weight_vector)
             idx = 0
-            for i in range(n-1):
+            sums = np.zeros(n, dtype=vals.dtype)
+            for i in range(n - 1):
                 l = n - i - 1
-                sums[i] += vals[idx: idx + l].sum()
-                sums[i+1: n] += vals[idx: idx + l]
+                block = vals[idx: idx + l]
+                sums[i] += np.dot(block, assignment_vert[i+1: n])
+                if assignment_vert[i] != 0:
+                    sums[i+1: n] += block * assignment_vert[i]
                 idx += l
-                
+
             if max_score == 0:
                 df[b_factor] = sums
             else:
-                df[b_factor] = max_score - sums
+                df[b_factor] = 100 / max_score * (max_score - sums)
 
             if cifdata == 'pdb':
-                outname = os.path.join(out_path, filename + '_' + funcname + '.pdb')
+                outname = os.path.join(out_path, filename + '_' + k + '_' + funcname + '.pdb')
                 atomic_df.df['ATOM'] = df.copy()
                 atomic_df.to_pdb(outname)
             else:
-                outname = os.path.join(out_path, filename + '_' + funcname + '.cif')
+                outname = os.path.join(out_path, filename + '_' + k + '_' + funcname + '.cif')
                 df_to_cif(outname, df=df, cifdata=cifdata)
 
             out += [[outname, min(df[b_factor]), max(df[b_factor])]]
-    
-        elif type(assignment) == dict:
-            for k, assignment_vert in assignment.items():
-                idx = 0
-                sums = np.zeros(n, dtype=vals.dtype)
-                for i in range(n - 1):
-                    l = n - i - 1
-                    block = vals[idx: idx + l]
-                    sums[i] += np.dot(block, assignment_vert[i+1: n])
-                    if assignment_vert[i] != 0:
-                        sums[i+1: n] += block * assignment_vert[i]
-                    idx += l
 
-                if max_score == 0:
-                    df[b_factor] = sums
-                else:
-                    df[b_factor] = max_score - sums
-
-                if cifdata == 'pdb':
-                    outname = os.path.join(out_path, filename + '_' + k + '_' + funcname + '.pdb')
-                    atomic_df.df['ATOM'] = df.copy()
-                    atomic_df.to_pdb(outname)
-                else:
-                    outname = os.path.join(out_path, filename + '_' + k + '_' + funcname + '.cif')
-                    df_to_cif(outname, df=df, cifdata=cifdata)
-
-                out += [[outname, min(df[b_factor]), max(df[b_factor])]]
-
-        else:
-            raise TypeError("assignment must be None or dict")
     return out
 
 
 def exposure_low_memory(pdb_path: str,
                         out_path: str,
+                        yn: 'function',
                         max_atoms: int,
                         assignment: None | dict[str, np.ndarray] = None, 
-                        funcs: dict[str, 'function'] | list[dict[str, 'function']] = {'scoring_function': power_cutoff,
-                                                                           'constants': {'power': 2, 'cutoff': 50},
-                                                                           'max_score': 26.5},
+                        funcs: dict[str, 'function'] | list[dict[str, 'function']] = {'scoring_function': power_double_cutoff,
+                                                                           'constants': {'power': 2, 'cutoff_far': 50, 'cutoff_close':1.85},
+                                                                           'max_score': {'weight_by_amu': 423.01, 'unweighted': 31.04}},
+                        weight_by_amu: bool = True,
                         progress_callback: 'function' = None):
     '''
     Saves a pdb with b-factor set to the solvent exposure score for all atoms in the pdb supplied. 
@@ -752,14 +787,13 @@ def exposure_low_memory(pdb_path: str,
     Args:
         pdb_path (str): The path of the file to use in score calculation (typically pdb or mmcif). It has n atoms.
         out_path (str): The path of the folder inside which the output pdb will be saved.
+        yn (function): For obtaining user input for yes/no questions.
         max_atoms (int): Length of maximum array pdist can be run on. Typically the return of funcs.max_len_for_full_matrix().
         assignment (None or dict[str, numpy array], optional): Dictionary with value(s) that are length n numpy arrays. 
             As standard, these are boolean arrays used to obtain solvent exposure scores only accounting for the contribution of atoms with entries = True/1 while ignore the contribution of atoms with entries False/0. 
             In principle, this can be used for any algebraic operation, including calculating solvent exposure scores with weighted scores from each atom.
-        funcs (dict[str: function], optional): Dictionary with value(s) calling scoring function(s). 
-            Keys are used for output file naming, in this case 2c50 meaning d**-2 scoring function with a distance cutoff at 50 Å (the default scoring function).
-        max_scores (dict[str: float], optional): Dictionary with value(s) corresponding to the maximum value for the corresponding scoring function(s). 
-            The keys used should be those used as the keys in funcs.
+        funcs (dict[str: function], optional): Dictionary with value(s) calling scoring function(s) and their associated constant(s). 
+        weight_by_amu (bool, optional): If True, as default, weights contributions to score by atomic mass of the paired atom. If False, doesn't.
         progress_callback (None or function, optional): If None, as default, progress messages are printed. If a function is given, custom behaviour can be implemented, such as for printing in a GUI during the run. 
 
     Returns:
@@ -778,10 +812,10 @@ def exposure_low_memory(pdb_path: str,
     atomic_df, filename, cifdata = read_pdb_mmcif(filepath=pdb_path, append_heteroatoms=True)
     if cifdata == 'pdb':
         df = atomic_df.df['ATOM'].copy()
-        x_coord, y_coord, z_coord, b_factor = 'x_coord', 'y_coord', 'z_coord', 'b_factor'
+        x_coord, y_coord, z_coord, b_factor, atom_name = 'x_coord', 'y_coord', 'z_coord', 'b_factor', 'atom_name'
     else:
         df = atomic_df
-        x_coord, y_coord, z_coord, b_factor = '_atom_site.Cartn_x', '_atom_site.Cartn_y', '_atom_site.Cartn_z', '_atom_site.B_iso_or_equiv'
+        x_coord, y_coord, z_coord, b_factor, atom_nem = '_atom_site.Cartn_x', '_atom_site.Cartn_y', '_atom_site.Cartn_z', '_atom_site.B_iso_or_equiv', '_atom_site.label_atom_id'
     
     coords = np.vstack((df[x_coord].to_numpy(), 
                         df[y_coord].to_numpy(), 
@@ -791,14 +825,25 @@ def exposure_low_memory(pdb_path: str,
 
     step = max_atoms // 2
     n = len(coords)
-    if assignment == None:
-        assignment_vert1 = np.ones(n, dtype=bool)
-    elif type(assignment) == dict:
-        assignment_vert1 = np.ones((n, len(assignment)), dtype=bool)
-        for ind, vert in enumerate(assignment.values()):
-            assignment_vert1[:,ind] = vert
+    if weight_by_amu:
+        weight_vector = weights_from_series(series=df[atom_name], yn=yn)
+        if assignment == None:
+            assignment_vert1 = weight_vector
+        elif type(assignment) == dict:
+            assignment_vert1 = np.ones((n, len(assignment)), dtype=bool)
+            for ind, vert in enumerate(assignment.values()):
+                assignment_vert1[:,ind] = np.multiply(vert, weight_vector)
+        else:
+            raise TypeError("assignment must be None or dict")
     else:
-        raise TypeError("assignment must be None or dict")
+        if assignment == None:
+            assignment_vert1 = np.ones(n, dtype=bool)
+        elif type(assignment) == dict:
+            assignment_vert1 = np.ones((n, len(assignment)), dtype=bool)
+            for ind, vert in enumerate(assignment.values()):
+                assignment_vert1[:,ind] = vert
+        else:
+            raise TypeError("assignment must be None or dict")
     
     # sums1 = np.zeros_like(assignment_vert1, dtype=np.float64)
     assignment_vert = {}
@@ -806,7 +851,6 @@ def exposure_low_memory(pdb_path: str,
     for ind, _ in enumerate(funcs):
         assignment_vert[ind] = assignment_vert1
         sums[ind] = np.zeros_like(assignment_vert1, dtype=np.float64)
-
 
     r1 = math.ceil(n / step) - 1
     gx = generate_indices(n_atoms=n, half_max_n=step)
@@ -840,7 +884,10 @@ def exposure_low_memory(pdb_path: str,
             # funcname = ''
             # for ke, va in constants.items():
             #     funcname += ke[0] + str(va).replace('.','point')
-            max_score = d['max_score']
+            if weight_by_amu:
+                max_score = d['max_score']['weight_by_amu']
+            else:
+                max_score = d['max_score']['unweighted']
             vals = func(d_cond, constants)
             nm=len(m)    
             if k == 0:
@@ -892,7 +939,7 @@ def exposure_low_memory(pdb_path: str,
                 if max_score == 0:
                     df[b_factor] = sums[indf][:,ind]
                 else:
-                    df[b_factor] = max_score - sums[indf][:,ind]
+                    df[b_factor] = 100 / max_score * (max_score - sums[indf][:,ind])
 
                 if cifdata == 'pdb':
                     outname = os.path.join(out_path, filename + '_' + k + '_' + funcname + '.pdb')
@@ -907,7 +954,7 @@ def exposure_low_memory(pdb_path: str,
             if max_score == 0:
                 df[b_factor] = sums[indf]
             else:
-                df[b_factor] = max_score - sums[indf]
+                df[b_factor] = 100 / max_score * (max_score - sums[indf])
             if cifdata == 'pdb':
                 outname = os.path.join(out_path, filename + '_' + funcname + '.pdb')
                 atomic_df.df['ATOM'] = df.copy()
@@ -923,8 +970,25 @@ def exposure_low_memory(pdb_path: str,
 
 def max_exposure_score(funcs: dict[str, 'function'] | list[dict[str, 'function']],
                        assignment: None | dict[str, np.ndarray],
-                       subsample,
-                       n_sigmas = 2):
+                       subsample: bool | int,
+                       yn: 'function',
+                       weight_by_amu: bool = True,
+                       n_sigmas: float | int = 2) -> pd.DataFrame:
+    '''
+    Calculates the maximum score for input functions and assignment vectors using RuBisCO with water modelled around.
+
+    Args:
+        funcs (dict[str: function], optional): Dictionary with value(s) calling scoring function(s) and their associated constant(s). 
+        assignment (None or dict[str, numpy array], optional): Dictionary with value(s) that are length n numpy arrays. 
+            As standard, these are boolean arrays used to obtain solvent exposure scores only accounting for the contribution of atoms with entries = True/1 while ignore the contribution of atoms with entries False/0. 
+            In principle, this can be used for any algebraic operation, including calculating solvent exposure scores with weighted scores from each atom.
+        subsample (bool or int): Number of atoms to subsample from RuBisCO asymmetric subunit to yield scores. If True, 1600. If False, all atoms. Warning, may require more memory than available if False.
+        yn (function): For obtaining user input for yes/no questions.
+        weight_by_amu (bool, optional): If True, as default, weights contributions to score by atomic mass of the paired atom. If False, doesn't.
+        n_sigmas (float or int, optional): Maximum score = mean(scores) + n_sigmas * std(scores)
+
+
+    '''
     if type(funcs) == dict:
         funcs:list = [funcs]
     if type(funcs) != list:
@@ -942,13 +1006,22 @@ def max_exposure_score(funcs: dict[str, 'function'] | list[dict[str, 'function']
     if assignment == None:
         assignment = {'tot': np.ones(len(coords_all), dtype=bool)}
 
+    if weight_by_amu:
+        weight_vector = weights_from_series(series=df['_atom_site.label_atom_id'], yn=yn)
+
     # Make do just one subunit
     coords_prot_sampled = coords_prot[:int(len(coords_prot)/8)]
 
     # Include n atoms -> faster
     if subsample != False:
         if subsample == True:
-            subsample = 1000
+            subsample = 1600
+        sampled_indices = np.linspace(0, len(coords_prot_sampled)-1, subsample, dtype=np.uint32)
+        coords_prot_sampled = coords_prot_sampled[sampled_indices]
+    
+    if len(coords_prot_sampled) > max_m_for_full_matrix(len(coords_all), 0.85):
+        subsample = max_m_for_full_matrix(len(coords_all), 0.85)
+        print('Subsampling required for memory reasons. Subsampled to {subsample} atoms')
         sampled_indices = np.linspace(0, len(coords_prot_sampled)-1, subsample, dtype=np.uint32)
         coords_prot_sampled = coords_prot_sampled[sampled_indices]
     
@@ -960,6 +1033,8 @@ def max_exposure_score(funcs: dict[str, 'function'] | list[dict[str, 'function']
         constants = d['constants']
         vals = func(distances_all, constants)
         for k,v in assignment.items():
+            if weight_by_amu:
+                v = np.multiply(v, weight_vector)
             scores = np.dot(vals, v)
             mean = np.mean(scores)
             std = np.std(scores)
@@ -1134,13 +1209,16 @@ def create_3_vectors(pdb_path: str, chain1: str | list, feature: str) -> dict[st
     Returns:
         (dict[str: numpy array]): A dict with three key-value pairs, one per assignment vector. 
             The key, a string, is used for future file naming and keeping track of which entries are in assignment vector 1, and therefore those that aren't in assignment vector 2. The key for the True/1 vector is tot.
-    """    
-    atomic_df, _, cifdata = read_pdb_mmcif(filepath=pdb_path, append_heteroatoms=True)
+    """   
+    if pdb_path.rsplit('.',1)[1] == 'pkl':
+        df = pd.read_pickle(pdb_path)
+    else: 
+        atomic_df, _, cifdata = read_pdb_mmcif(filepath=pdb_path, append_heteroatoms=True)
 
-    if cifdata == 'pdb':
-        df = atomic_df.df['ATOM'].copy()
-    else:
-        df = atomic_df
+        if cifdata == 'pdb':
+            df = atomic_df.df['ATOM'].copy()
+        else:
+            df = atomic_df
 
     out_tot = np.ones(len(df), dtype=bool)
 
@@ -1562,7 +1640,7 @@ def score_v_localres_plotly(pdb_path: str,
 
 
 def visualize(pdb_path: str,
-              b_factor_range: list = [0, 20],
+              b_factor_range: list = [0, 100],
               append_heteroatoms: 'function' = yes_no) -> 'plotly.graph_objs._figure.Figure':
     """
     Builds and returns a Plotly Figure for the given pdb_path.
@@ -1749,6 +1827,7 @@ def max_n_for_full_matrix(fraction_of_avail: float = 0.6, dtype: type = np.float
     # n^2 * bytes_per_element <= max_bytes  ->  n <= sqrt(max_bytes/bytes_per_element)
     return int(math.floor(math.sqrt(max_bytes / bytes_per_element)))
 
+
 def max_m_for_full_matrix(n: int, fraction_of_avail: float = 0.6, dtype: type = np.float64) -> int:
     """
     Calculates size, m, of an m x n matrix with specified dtype that can be generated when using a specified fraction of available memory. 
@@ -1789,12 +1868,12 @@ def max_len_for_full_matrix(fraction_of_avail: float = 0.6, dtype: type = np.flo
     return int(math.floor((1 + math.sqrt(1+ 8 * max_bytes / bytes_per_element))/2))
 
 
-available_scoring_functions = {'Power': {'scoring_function': power_cutoff,
+available_scoring_functions = {'Power2': {'scoring_function': power_cutoff,
                                          'constants': {'power': 2, 'cutoff': 50},
-                                         'max_score': 32.08},
-                               'Power2': {'scoring_function': power_double_cutoff,
+                                         'max_score': {'weight_by_amu': 436.89, 'unweighted': 32.08}},
+                               'Power3': {'scoring_function': power_double_cutoff,
                                           'constants': {'power': 3, 'cutoff_far': 50, 'cutoff_close': 1.85},
-                                          'max_score': 30},
+                                          'max_score': {'weight_by_amu': 30, 'unweighted': 2.22}},
                                          }
 
 

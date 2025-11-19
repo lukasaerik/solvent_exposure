@@ -69,7 +69,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from funcs import preprocess, create_3_vectors, create_vectors, exposure, score_v_localres, features, getcols, average_score, visualize, score_v_localres_plotly, max_exposure_score, max_m_for_full_matrix, standard_residues, available_scoring_functions
+from funcs import preprocess, create_3_vectors, create_vectors, exposure, score_v_localres, features, getcols, average_score, visualize, score_v_localres_plotly, max_exposure_score, max_m_for_full_matrix, standard_residues, available_scoring_functions, standard_atoms, all_atoms
 
 basedir = os.path.dirname(__file__)
 
@@ -795,10 +795,11 @@ class ScriptWorker(QObject):
             out_path = settings.get('folder_out_path')
             average = settings.get('average')
             backbone = settings.get('backbone')
+            weight = settings.get('weight_by_atomic_mass')
 
             pre_out = preprocess(pdb_path=pdb_path, pre_path=pre_path, yn=self.yes_no)
             self.progress.emit('Preprocessing complete')
-            result = exposure(pdb_path=pre_out, out_path=out_path, progress_callback=self.progress.emit)
+            result = exposure(pdb_path=pre_out, out_path=out_path, yn=self.yes_no, weight_by_amu=weight, progress_callback=self.progress.emit)
             if average:
                 self.progress.emit('Main calculation(s) complete.')
                 tempresult = []
@@ -823,6 +824,11 @@ class ScriptWorker(QObject):
 
             pre_out = preprocess(pdb_path=pdb_path, pre_path=pre_path, yn=self.yes_no)
             self.progress.emit('Preprocessing complete')
+            if pre_out.rsplit('.',1)[1] == 'cif':
+                if feature == 'chain_id':
+                    feature = '_atom_site.label_asym_id'
+                elif feature == 'residue_name':
+                    feature = '_atom_site.label_comp_id'
             features_out = features(pdb_path=pre_out, feature=feature)
             result = pre_out, features_out
             self.finished.emit(result)
@@ -842,9 +848,16 @@ class ScriptWorker(QObject):
             combo = settings.get('combo')
             average = settings.get('average')
             backbone = settings.get('backbone')
+            weight = settings.get('weight_by_atomic_mass')
+
+            if pdb_path.rsplit('.',1)[1] == 'cif':
+                if feature == 'chain_id':
+                    feature = '_atom_site.label_asym_id'
+                elif feature == 'residue_name':
+                    feature = '_atom_site.label_comp_id'
 
             assignment = create_3_vectors(pdb_path=pdb_path, chain1=combo, feature=feature)
-            result = exposure(pdb_path=pdb_path, out_path=out_path, assignment=assignment)
+            result = exposure(pdb_path=pdb_path, out_path=out_path, yn=self.yes_no, assignment=assignment, weight_by_amu=weight, progress_callback=self.progress.emit)
             if average:
                 self.progress.emit('Main calculation(s) complete.')
                 tempresult = []
@@ -882,10 +895,10 @@ class ScriptWorker(QObject):
             settings = self.settings
             pdb_path = settings.get('preprocess_file_path')
             pre_path = settings.get('preprocess_folder_path')
-            include = settings.get('preprocess_include_selected')
+            # include = settings.get('preprocess_include_selected')
             redefine_chains = settings.get('preprocess_redefine_chains')
 
-            result = preprocess(pdb_path=pdb_path, pre_path=pre_path, yn=self.yes_no, include=include, redefine_chains=redefine_chains)
+            result = preprocess(pdb_path=pdb_path, pre_path=pre_path, yn=self.yes_no, redefine_chains=redefine_chains)
             self.finished.emit(result)
         except Exception as e:
             self.error.emit(str(e))
@@ -906,8 +919,9 @@ class ScriptWorker(QObject):
             average = settings.get('average')
             backbone = settings.get('backbone')
             funcs = settings.get('funcs')
+            weight = settings.get('weight_by_atomic_mass')
             
-            result = exposure(pdb_path=pdb_path, out_path=out_path, assignment=assignment, funcs=funcs, progress_callback=self.progress.emit)
+            result = exposure(pdb_path=pdb_path, out_path=out_path, yn=self.yes_no, assignment=assignment, funcs=funcs, weight_by_amu=weight, progress_callback=self.progress.emit)
             if average:
                 self.progress.emit('Main calculation(s) complete.')
                 tempresult = []
@@ -963,7 +977,18 @@ class MainWindow(QMainWindow):
         file_menu.addAction(close_action)
         self.addAction(close_action)
 
+        self.weight_by_atomic_mass = True
+
+        settings_menu = self.menuBar().addMenu('&Settings')
+        self.weight_by_atomic_mass_button = QAction("&Weight by atomic mass", self)
+        self.weight_by_atomic_mass_button.setStatusTip("Would you like to weight contributions to score by atomic mass? This will change max score.")
+        self.weight_by_atomic_mass_button.triggered.connect(self.weight_by_atomic_mass_clicked)
+        self.weight_by_atomic_mass_button.setCheckable(True)
+        self.weight_by_atomic_mass_button.setChecked(self.weight_by_atomic_mass)
+        settings_menu.addAction(self.weight_by_atomic_mass_button)
+
         self.enable_disable = []
+        self.all_settings = []
         
         # Set up Tabs
         tabs = QTabWidget()
@@ -982,7 +1007,9 @@ class MainWindow(QMainWindow):
             'folder_out_path': os.path.join(basedir, 'pdbs', 'out'),
             'average': True,
             'backbone': False,
+            'weight_by_atomic_mass': self.weight_by_atomic_mass,
         }
+        self.all_settings.append(self.current_simple_settings)
 
         self.simple_average = True
         self.simple_backbone = False
@@ -1067,7 +1094,9 @@ class MainWindow(QMainWindow):
             'combo': '',
             'average': True,
             'backbone': False,
+            'weight_by_atomic_mass': self.weight_by_atomic_mass,
         }
+        self.all_settings.append(self.current_adduct_settings)
 
         # PDB File selection
         adduct_file_row = QHBoxLayout()
@@ -1210,6 +1239,7 @@ class MainWindow(QMainWindow):
             'defattr_path': os.path.join(basedir, 'pdbs', 'out', 'defattrs', 'gdh_J123.defattr'),
             'only_chain': False,
             'only_backbone': False,
+            'weight_by_atomic_mass': self.weight_by_atomic_mass,
         }
 
         plot_pdb_row = QHBoxLayout()
@@ -1303,16 +1333,18 @@ class MainWindow(QMainWindow):
             'assignment_vectors': None,
             'preprocessed_path_calculate': '',
             'calculate_folder_path': os.path.join(basedir, 'pdbs', 'out'),
-            'function_types': ['Power', 'Power2'],
-            'function_selected': 'Power',
-            'calculate_assignment': True,
+            'function_types': list(available_scoring_functions.keys()),
+            'function_selected': 'Power3',
+            'calculate_assignment': False,
             'average': True,
             'backbone': False,
+            'weight_by_atomic_mass': self.weight_by_atomic_mass,
         }
         self.current_manual_settings['function'] = available_scoring_functions[self.current_manual_settings.get('function_selected')]
+        self.all_settings.append(self.current_manual_settings)
 
         self.preprocess_redefine_chains = False
-        self.calculate_assignment = True
+        self.calculate_assignment = False
         self.calculate_average = True
         self.calculate_backbone = False
 
@@ -1598,14 +1630,14 @@ class MainWindow(QMainWindow):
         function_type_col.addWidget(label)
         combo = QComboBox()
         combo.addItems(self.current_manual_settings.get('function_types'))
-        combo.currentIndexChanged.connect(lambda _, w=m: self._on_manual_reset_row(w, 0))
-        op = self.current_manual_settings.get('function_selected', 'Power')
+        op = self.current_manual_settings.get('function_selected', 'Power3')
         idx = combo.findText(op)
         if idx>=0:
             combo.setCurrentIndex(idx)
         function_type_col.addWidget(combo)
         manual_function.addLayout(function_type_col)
         self.functions[0] = {'function': combo}
+        combo.currentIndexChanged.connect(lambda _, w=m: self._on_manual_reset_row(w, 0))
 
         self.manual_function_values = {}
         for constant, cvalue in self.current_manual_settings.get('function')['constants'].items():
@@ -1626,7 +1658,10 @@ class MainWindow(QMainWindow):
         max_score = QDoubleSpinBox()
         max_score.setMinimum(0)
         max_score.setMaximum(1e6)
-        max_score.setValue(self.current_manual_settings.get('function').get('max_score', 0))
+        if self.weight_by_atomic_mass:
+            max_score.setValue(self.current_manual_settings.get('function').get('max_score').get('weight_by_amu', 0))
+        else:
+            max_score.setValue(self.current_manual_settings.get('function').get('max_score').get('unweighted', 0))
         function_max_score_col.addWidget(max_score)
         manual_function.addLayout(function_max_score_col)
         self.functions[0]['max_score'] = max_score
@@ -1684,6 +1719,11 @@ class MainWindow(QMainWindow):
         tabs.addTab(manual_tot, 'Manual')
 
         self.setCentralWidget(tabs)
+
+    def weight_by_atomic_mass_clicked(self, state):
+        self.weight_by_atomic_mass = bool(state)
+        for sett in self.all_settings:
+            sett['weight_by_atomic_mass'] = self.weight_by_atomic_mass
 
     def on_run_simple_clicked(self):
         # gather values
@@ -1845,6 +1885,8 @@ class MainWindow(QMainWindow):
         self.run_plot.setEnabled(True)
         for i in result:
             self.adduct_output.append(f'File {i[0]} saved. \n Min: {i[1]:.2f} \n Max: {i[2]:.2f}')
+        self.visuals_pdb_edit.setText(f'{result[0][0]}')
+        self._render_embed()
 
     def on_worker_adduct_out_error(self, err_str):
         self.run_adduct_out.setEnabled(True)
@@ -1926,7 +1968,6 @@ class MainWindow(QMainWindow):
         self.run_plot.setEnabled(True)
         self.plot_output.append(f'Worker error: {err_str}')
         QMessageBox.critical(self, 'Script error', f'An error occurred:\n{err_str}')
-
 
     def _browse_file(self):
         fname, _ = QFileDialog.getOpenFileName(self, 'Select file', self.file_edit.text() or '', 'All Files (*)')
@@ -2463,7 +2504,7 @@ class MainWindow(QMainWindow):
     def _on_manual_reset_row(self, widget, index):
         if widget is not None:
             
-            containing_layout = widget.parent().layout()
+            # containing_layout = widget.parent().layout()
 
             op = self.functions[index]['function'].currentText()
 
@@ -2504,7 +2545,10 @@ class MainWindow(QMainWindow):
             max_score = QDoubleSpinBox()
             max_score.setMinimum(0)
             max_score.setMaximum(1e6)
-            max_score.setValue(available_scoring_functions.get(op).get('max_score', 0))
+            if self.weight_by_atomic_mass:
+                max_score.setValue(self.current_manual_settings.get('function').get('max_score').get('weight_by_amu', 0))
+            else:
+                max_score.setValue(self.current_manual_settings.get('function').get('max_score').get('unweighted', 0))
             function_max_score_col.addWidget(max_score)
             manual_function.addLayout(function_max_score_col)
             self.functions[index]['max_score'] = max_score
@@ -2524,7 +2568,7 @@ class MainWindow(QMainWindow):
             manual_function.addLayout(button_col)
             m.setLayout(manual_function)
 
-            containing_layout.replaceWidget(widget, m)
+            self.manual_functions.replaceWidget(widget, m)
             self._on_manual_remove_row(widget, index)
 
 
@@ -2568,7 +2612,10 @@ class MainWindow(QMainWindow):
         max_score = QDoubleSpinBox()
         max_score.setMinimum(0)
         max_score.setMaximum(1e6)
-        max_score.setValue(self.current_manual_settings.get('function').get('max_score', 0))
+        if self.weight_by_atomic_mass:
+            max_score.setValue(self.current_manual_settings.get('function').get('max_score').get('weight_by_amu', 0))
+        else:
+            max_score.setValue(self.current_manual_settings.get('function').get('max_score').get('unweighted', 0))
         function_max_score_col.addWidget(max_score)
         manual_function.addLayout(function_max_score_col)
         self.functions[index]['max_score'] = max_score
@@ -2631,13 +2678,24 @@ class MainWindow(QMainWindow):
                 ass = {'weighted': result}
 
 
-        df_out = max_exposure_score(funcs=temp, assignment=ass, subsample=min(1600, max_m_for_full_matrix(276451,0.8)))
+        df_out = max_exposure_score(funcs=temp, assignment=ass, subsample=min(1600, max_m_for_full_matrix(276451,0.8)), yn=self.yes_no, weight_by_amu=self.current_manual_settings.get('weight_by_atomic_mass'))
 
         self.functions[index]['max_score'].setValue(df_out.iloc[0,0])
         self.manual_output.append(f'Max score calculated: {df_out.iloc[0,0]:.2f}')
         if df_out.shape != (1,1):
             self.manual_output.append(f'{df_out}')
             self.manual_output.append('WARNING: multiple assignment vectors provided for max score calculation. First entry used to set max score.')
+
+    def yes_no(self, text):
+        dlg = QMessageBox(self)
+        dlg.setWindowTitle('User Input Required')
+        dlg.setText(text)
+        dlg.setStandardButtons(QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+        dlg.setDefaultButton(QMessageBox.StandardButton.Yes)
+        dlg.setIcon(QMessageBox.Icon.Question)
+        button = dlg.exec()
+        yn = (button == QMessageBox.StandardButton.Yes)
+        return yn
 
 
     def on_run_manual_calculate_clicked(self):
@@ -2707,7 +2765,10 @@ class MainWindow(QMainWindow):
                 if key == 'function':
                     temp = available_scoring_functions[value.currentText()].copy()
                 elif key == 'max_score':
-                    temp[key] = float(value.text())
+                    if self.weight_by_atomic_mass:
+                        temp[key] = {'weight_by_amu': float(value.text())}
+                    else:
+                        temp[key] = {'unweighted': float(value.text())}
                 elif float(value.text()) % 1 == 0:
                     tempconstants[key] = int(float(value.text()))
                 else:

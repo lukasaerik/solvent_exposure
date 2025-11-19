@@ -22,6 +22,11 @@ conda activate solvent_exposure
 conda install -c conda-forge biopandas mplcursors pyqtwebengine
 ```
 
+psutil is not always installed by default, install if necessary
+```python
+conda install -c conda-forge psutil
+```
+
 If you wish to run the .ipynb file in VS code or similar, install ipykernel
 ```python
 conda install ipykernel
@@ -47,7 +52,9 @@ It is, in principle, possible to run the GUI version as a standalone app without
 ## Running
 ```funcs.py``` contains all standard functions, and is called by ```app.py``` and ```solvent_exposure.ipynb``` for running in a GUI or notebook, respectively. These are now annotated rather verbosely, so read the docstrings for more clarification.
 
-Running ```app.py``` generates a GUI. This is the easiest way to use these functions as intended for beginner users. There are only limited options for custom calculations, but the GUI should cover all standard use cases.
+Running ```app.py``` generates a GUI. This is the easiest way to use these functions as intended for most users. There are only limited options for custom calculations, but the GUI should cover all standard use cases. Modifying the code slightly to include custom scoring functions is quite straightforward.
+
+Under settings, you can decide whether to weight the contributions to exposure score from all atoms by their atomic mass. When doing so, it is important to remember your raw score will change by more than an order of magnitude. A proper maximum score must be calculated for both weighte (by atomic masses) and unweighted calculations. This can now be done in the GUI under Manual -> Exposure Calculation or using ```funcs.max_exposure_score()```. Currently, the maximum score is given by the mean score plus two (n_sigmas) times the standard deviation of scores, but this can be changed if you so wish.
 
 ```solvent_exposure.ipynb``` is a notebook version that shows how to run standard calculations as intended, and a couple advanced options as examples.
 
