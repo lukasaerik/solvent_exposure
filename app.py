@@ -47,7 +47,7 @@ except Exception:
     QWebEngineProfile = None
 
 from PyQt6.QtCore import Qt, QObject, QThread, pyqtSignal, QEventLoop, QEvent, QUrl
-from PyQt6.QtGui import QAction, QPalette, QStandardItem, QStandardItemModel, QFontMetrics, QKeySequence
+from PyQt6.QtGui import QAction, QIcon, QPalette, QStandardItem, QStandardItemModel, QFontMetrics, QKeySequence
 from PyQt6.QtWidgets import (
     QApplication,
     QCheckBox,
@@ -69,7 +69,10 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from funcs import preprocess, create_3_vectors, create_vectors, exposure, score_v_localres, features, getcols, average_score, visualize, score_v_localres_plotly, max_exposure_score, max_m_for_full_matrix, standard_residues, available_scoring_functions, standard_atoms, all_atoms
+from funcs import ( preprocess, create_3_vectors, create_vectors, exposure,
+                    score_v_localres, features, getcols, average_score, visualize,
+                    score_v_localres_plotly, max_exposure_score, max_m_for_full_matrix, 
+                    standard_residues, available_scoring_functions, standard_atoms, all_atoms)
 
 basedir = os.path.dirname(__file__)
 
@@ -969,6 +972,11 @@ class MainWindow(QMainWindow):
         super().__init__()
         self.setWindowTitle('Solvent Exposure Calculation')
         self.resize(600, 800)
+
+        self.enable_disable = []
+        self.all_settings = []
+        self.weight_by_atomic_mass = True
+
         file_menu = self.menuBar().addMenu('&File')
         close_action = QAction('Close', self)
         close_action.setShortcut(QKeySequence(QKeySequence.StandardKey.Close))  
@@ -977,18 +985,16 @@ class MainWindow(QMainWindow):
         file_menu.addAction(close_action)
         self.addAction(close_action)
 
-        self.weight_by_atomic_mass = True
-
         settings_menu = self.menuBar().addMenu('&Settings')
         self.weight_by_atomic_mass_button = QAction("&Weight by atomic mass", self)
         self.weight_by_atomic_mass_button.setStatusTip("Would you like to weight contributions to score by atomic mass? This will change max score.")
         self.weight_by_atomic_mass_button.triggered.connect(self.weight_by_atomic_mass_clicked)
         self.weight_by_atomic_mass_button.setCheckable(True)
         self.weight_by_atomic_mass_button.setChecked(self.weight_by_atomic_mass)
+        self.enable_disable.append(self.weight_by_atomic_mass_button)
         settings_menu.addAction(self.weight_by_atomic_mass_button)
 
-        self.enable_disable = []
-        self.all_settings = []
+        
         
         # Set up Tabs
         tabs = QTabWidget()
@@ -1732,13 +1738,11 @@ class MainWindow(QMainWindow):
             self.current_simple_settings[k] = updated_settings.get(k)
 
         # disable buttons while running
-        self.run_simple.setEnabled(False)
         self.file_browse.setEnabled(False)
         self.folder_pre_browse.setEnabled(False)
         self.folder_out_browse.setEnabled(False)
-        self.run_adduct_out.setEnabled(False)
-        self.run_adduct_pre.setEnabled(False)
-        self.run_plot.setEnabled(False)
+        for b in self.enable_disable:
+            b.setEnabled(False)
 
         # create worker & thread
         self.thread = QThread()
@@ -1761,13 +1765,12 @@ class MainWindow(QMainWindow):
 
     def on_worker_simple_finished(self, result):
         # re-enable run button
-        self.run_simple.setEnabled(True)
         self.file_browse.setEnabled(True)
         self.folder_pre_browse.setEnabled(True)
         self.folder_out_browse.setEnabled(True)
-        self.run_adduct_out.setEnabled(True)
-        self.run_adduct_pre.setEnabled(True)
-        self.run_plot.setEnabled(True)
+        for b in self.enable_disable:
+            b.setEnabled(True)
+
         for i in result:
             self.simple_output.append(f'File {i[0]} saved. \n Min: {i[1]:.2f} \n Max: {i[2]:.2f}')
         # print(f'{result[0][0]}')
@@ -1775,7 +1778,11 @@ class MainWindow(QMainWindow):
         self._render_embed()
 
     def on_worker_simple_error(self, err_str):
-        self.run_simple.setEnabled(True)
+        self.file_browse.setEnabled(True)
+        self.folder_pre_browse.setEnabled(True)
+        self.folder_out_browse.setEnabled(True)
+        for b in self.enable_disable:
+            b.setEnabled(True)
         self.simple_output.append(f'Worker error: {err_str}')
         QMessageBox.critical(self, 'Script error', f'An error occurred:\n{err_str}')
 
@@ -1786,14 +1793,11 @@ class MainWindow(QMainWindow):
             self.current_adduct_settings[k] = updated_settings.get(k)
 
         # disable run button while running
-        self.run_simple.setEnabled(False)
-        self.run_plot.setEnabled(False)
-        self.run_adduct_out.setEnabled(False)
-        self.run_adduct_pre.setEnabled(False)
         self.adduct_file_browse.setEnabled(False)
         self.adduct_folder_pre_browse.setEnabled(False)
         self.adduct_folder_out_browse.setEnabled(False)
-        self.run_plot.setEnabled(False)
+        for b in self.enable_disable:
+            b.setEnabled(False)
 
         # create worker & thread
         self.thread = QThread()
@@ -1816,14 +1820,12 @@ class MainWindow(QMainWindow):
 
     def on_worker_adduct_pre_finished(self, result):
         # re-enable run button
-        self.run_simple.setEnabled(True)
-        self.run_plot.setEnabled(True)
-        self.run_adduct_out.setEnabled(True)
-        self.run_adduct_pre.setEnabled(True)
         self.adduct_file_browse.setEnabled(True)
         self.adduct_folder_pre_browse.setEnabled(True)
         self.adduct_folder_out_browse.setEnabled(True)
-        self.run_plot.setEnabled(True)     
+        for b in self.enable_disable:
+            b.setEnabled(True)  
+
         pre_out, options = result
         self.current_adduct_settings['pre_out_path'] = pre_out
         self.adduct_output.append(f"File {pre_out} saved. \n There were {len(options)} unique entries under {self.current_adduct_settings.get('feature')}.")
@@ -1831,7 +1833,11 @@ class MainWindow(QMainWindow):
         self.combo.addItems(options)
 
     def on_worker_adduct_pre_error(self, err_str):
-        self.run_adduct_pre.setEnabled(True)
+        self.adduct_file_browse.setEnabled(True)
+        self.adduct_folder_pre_browse.setEnabled(True)
+        self.adduct_folder_out_browse.setEnabled(True)
+        for b in self.enable_disable:
+            b.setEnabled(True)  
         QMessageBox.critical(self, 'Script error', f'An error occurred:\n{err_str}')
 
     def on_run_adduct_out_clicked(self):
@@ -1845,14 +1851,11 @@ class MainWindow(QMainWindow):
 
 
             # disable run button while running
-            self.run_simple.setEnabled(False)
-            self.run_plot.setEnabled(False)
-            self.run_adduct_out.setEnabled(False)
-            self.run_adduct_pre.setEnabled(False)
             self.adduct_file_browse.setEnabled(False)
             self.adduct_folder_pre_browse.setEnabled(False)
             self.adduct_folder_out_browse.setEnabled(False)
-            self.run_plot.setEnabled(False)
+            for b in self.enable_disable:
+                b.setEnabled(False)
 
             # create worker & thread
             self.thread = QThread()
@@ -1875,21 +1878,22 @@ class MainWindow(QMainWindow):
 
     def on_worker_adduct_out_finished(self, result):
         # re-enable run button
-        self.run_simple.setEnabled(True)
-        self.run_plot.setEnabled(True)
-        self.run_adduct_out.setEnabled(True)
-        self.run_adduct_pre.setEnabled(True)
         self.adduct_file_browse.setEnabled(True)
         self.adduct_folder_pre_browse.setEnabled(True)
         self.adduct_folder_out_browse.setEnabled(True)    
-        self.run_plot.setEnabled(True)
+        for b in self.enable_disable:
+            b.setEnabled(True)
         for i in result:
             self.adduct_output.append(f'File {i[0]} saved. \n Min: {i[1]:.2f} \n Max: {i[2]:.2f}')
         self.visuals_pdb_edit.setText(f'{result[0][0]}')
         self._render_embed()
 
     def on_worker_adduct_out_error(self, err_str):
-        self.run_adduct_out.setEnabled(True)
+        self.adduct_file_browse.setEnabled(True)
+        self.adduct_folder_pre_browse.setEnabled(True)
+        self.adduct_folder_out_browse.setEnabled(True)    
+        for b in self.enable_disable:
+            b.setEnabled(True)
         QMessageBox.critical(self, 'Script error', f'An error occurred:\n{err_str}')
 
     def _on_simple_average_toggled(self, state):
@@ -1924,7 +1928,8 @@ class MainWindow(QMainWindow):
             self.current_plot_settings[k] = updated_settings.get(k)
 
         # disable run button while running
-        self.run_plot.setEnabled(False)
+        for b in self.enable_disable:
+            b.setEnabled(False)
 
         # create worker & thread
         self.thread = QThread()
@@ -1946,7 +1951,8 @@ class MainWindow(QMainWindow):
 
     def on_worker_plot_finished(self, result):
         # re-enable run button
-        self.run_plot.setEnabled(True)
+        for b in self.enable_disable:
+            b.setEnabled(True)
 
         # result is the dict emitted by worker
         if isinstance(result, dict):
@@ -1965,7 +1971,8 @@ class MainWindow(QMainWindow):
             self.plot_output.append('Plot worker finished (unexpected result format).')
 
     def on_worker_plot_error(self, err_str):
-        self.run_plot.setEnabled(True)
+        for b in self.enable_disable:
+            b.setEnabled(True)
         self.plot_output.append(f'Worker error: {err_str}')
         QMessageBox.critical(self, 'Script error', f'An error occurred:\n{err_str}')
 
@@ -2833,6 +2840,7 @@ class MainWindow(QMainWindow):
         }
 
 app = QApplication(sys.argv)
+app.setWindowIcon(QIcon(os.path.join(basedir, "standards", "icon.png")))
 
 window = MainWindow()
 window.show()

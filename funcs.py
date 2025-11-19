@@ -14,25 +14,39 @@ basedir = os.path.dirname(__file__)
 standard_residues = ['LYS', 'LEU', 'THR', 'TYR', 'PRO', 'GLU', 'ASP', 'ILE', 'ALA', 'PHE', 'ARG',
                      'VAL', 'GLN', 'GLY', 'SER', 'TRP', 'CYS', 'HIS', 'ASN', 'MET', 'SEC', 'PYL']
 '''3 letter codes for all standard amino acid residues.'''
-Cs = ['C', 'CA', 'CB', 'CD', 'CE', 'CG', 'CH', 'CZ', 
-      'CD1', 'CD2', 'CE1', 'CE2', 'CE3', 'CG1', 'CG2', 'CG3', 'CH1', 'CH2', 'CH3', 'CZ1', 'CZ2', 'CZ3',
+Cs = ['C', 'CA', 'CB', 'CD', 'CE', 'CG', 'CH', 'CZ', 'CT', 'CM', 'CQ', 'CZQ', 'CME',
+      'CA1', 'CA2', 'CB1', 'CB2', 'CD1', 'CD2', 'CD3', 'CE1', 'CE2', 'CE3', 'CE4', 'CE5', 'CE6', 'CG1', 'CG2', 'CG3', 'CH1', 'CH2', 'CH3', 'CZ1', 'CZ2', 'CZ3', 'CT1', 'CT2', 'CT3',
       'C1', 'C2', 'C3', 'C4', 'C5', 'C6', 'C7', 'C8', 'C9', 'C10', 'C11', 'C12', 'C13', 'C14',
       "C1'", "C2'", "C3'", "C4'", "C5'",]
-Ns = ['N', 'ND', 'NE', 'NZ',
-      'ND1', 'ND2', 'NE1', 'NE2', 'NH1', 'NH2',
-      'N1', 'N2', 'N3', 'N4', 'N5', 'N6', 'N7', 'N8', 'N9',]
-Os = ['O', 'OG', 'OH', 'OW', 'OXT',
-      'OD1', 'OD2', 'OE1', 'OE2', 'OG1', 'OG2', 'OP1', 'OP2', 'OP3',
+Ns = ['N', 'NA', 'NB', 'NC', 'ND', 'NE', 'NZ', 'NT',
+      'ND1', 'ND2', 'ND3', 'NE1', 'NE2', 'NH1', 'NH2', 'NT1', 'NT2', 'NT3',
+      'N1', 'N2', 'N3', 'N4', 'N5', 'N6', 'N7', 'N8', 'N9', 'N1+', 'N2+',]
+Os = ['O', 'OB', 'OG', 'OH', 'OW', 'OXT',
+      'OC1', 'OC2', 'OD1', 'OD2', 'OE1', 'OE2', 'OG1', 'OG2', 'OH2', 'OP1', 'OP2', 'OP3', 'OT1', 'OT2', 'OXT1', 'OXT2',
       'O1', 'O2', 'O3', 'O4', 'O5', 'O6',
       "O2'", "O3'", "O4'", "O5'",
-      'O1A', 'O1B', 'O1G', 'O2A', 'O2B', 'O2G' 'O3A', 'O3B', 'O3G',]
-Ss = ['S', 'SD', 'SE', 'SG', 'S1',]
-Ps = ['P', 'PA', 'PB', 'PG']
+      'O1A', 'O1B', 'O1G', 'O2A', 'O2B', 'O2G', 'O3A', 'O3B', 'O3G',]
+Ss = ['S', 'SD', 'SG', 'S1', 'SM', 'S1P', 'S2', 'S3', 'SD1', 'SD2',]
+Ps = ['P', 'PA', 'PB', 'PG', 'PC', 'PD', 'PE', 'PG1', 'PG2',]
 NAs= ['NA']
 MGs= ['MG']
 ZNs= ['ZN']
+FEs= ['FE', 'FE1', 'FE2', 'FE3']
+MNs= ['MN', 'MN1', 'MN2']
+CLs= ['CL']
+Ks = ['K']
+CAs= ['CA']  # note: also alpha-carbon; distinguish by residue name
+COs= ['CO', 'CO1']
+CUs= ['CU', 'CU1', 'CU2']
+HGs= ['HG']
+NIs= ['NI']
+SEs= ['SE']
+BRs= ['BR']
+Is = ['I']
+SRs= ['SR']
+BAs= ['BA']
 standard_atoms = Cs + Ns + Os + Ss + Ps
-all_atoms = standard_atoms + NAs + MGs + ZNs
+all_atoms = standard_atoms + NAs + MGs + ZNs + FEs + MNs + CLs + Ks + CAs + COs + CUs + HGs + NIs + SEs + BRs + Is + SRs + BAs 
 
 
 def yes_no(text: str) -> bool:
@@ -90,20 +104,20 @@ def cif_to_df(path:str):
         '_atom_site.label_alt_id': 26,
         '_atom_site.label_comp_id': 28,
         '_atom_site.label_asym_id': 33,
-        '_atom_site.label_entity_id': 35,
-        '_atom_site.label_seq_id': 38,
-        '_atom_site.pdbx_PDB_ins_code': 43,
-        '_atom_site.Cartn_x': 45,
-        '_atom_site.Cartn_y': 54,
-        '_atom_site.Cartn_z': 63,
-        '_atom_site.occupancy': 72,
-        '_atom_site.B_iso_or_equiv': 77,
-        '_atom_site.pdbx_formal_charge': 85,
-        '_atom_site.auth_seq_id': 87,
-        '_atom_site.auth_comp_id': 93,
-        '_atom_site.auth_asym_id': 99,
-        '_atom_site.auth_atom_id': 101,
-        '_atom_site.pdbx_PDB_model_num': 107
+        '_atom_site.label_entity_id': 37,
+        '_atom_site.label_seq_id': 40,
+        '_atom_site.pdbx_PDB_ins_code': 45,
+        '_atom_site.Cartn_x': 47,
+        '_atom_site.Cartn_y': 56,
+        '_atom_site.Cartn_z': 65,
+        '_atom_site.occupancy': 74,
+        '_atom_site.B_iso_or_equiv': 79,
+        '_atom_site.pdbx_formal_charge': 87,
+        '_atom_site.auth_seq_id': 89,
+        '_atom_site.auth_comp_id': 95,
+        '_atom_site.auth_asym_id': 101,
+        '_atom_site.auth_atom_id': 105,
+        '_atom_site.pdbx_PDB_model_num': 111
     }
 
     # merge inferred with overrides (override wins)
@@ -394,15 +408,70 @@ def preprocess(pdb_path: str,
     return out_path
 
 
-def weights_from_series(series, yn):
-    weights = 12 * np.asarray(series.isin(Cs)) + 14 * np.asarray(series.isin(Ns)) + 16 * np.asarray(series.isin(Os)) + 32 * np.asarray(series.isin(Ss)) + 31 * np.asarray(series.isin(Ps)) + 23 * np.asarray(series.isin(NAs)) + 24.3 * np.asarray(series.isin(MGs)) + 65.4 * np.asarray(series.isin(ZNs))
-    masses = {'C':12,'N':14,'O':16,'S':32,'P':31}
-    for entry in series.drop_duplicates().tolist():
+def weights_from_df(df, yn):
+    if 'atom_name' in list(df.columns.values):
+        atom_name, residue_name = 'atom_name', 'residue_name'
+    elif '_atom_site.label_atom_id' in list(df.columns.values):
+        atom_name, residue_name = '_atom_site.label_atom_id', "_atom_site.label_comp_id"
+    else:
+        raise KeyError('Expected column atom_name or _atom_site.label_atom_id in df')
+
+    weights = 12.01 * np.asarray(df[atom_name].isin(Cs)) + \
+              14.01 * np.asarray(df[atom_name].isin(Ns)) + \
+              16.00 * np.asarray(df[atom_name].isin(Os)) + \
+              32.06 * np.asarray(df[atom_name].isin(Ss)) + \
+              30.97 * np.asarray(df[atom_name].isin(Ps)) + \
+              22.99 * np.asarray(df[atom_name].isin(NAs)) + \
+              24.31 * np.asarray(df[atom_name].isin(MGs)) + \
+              65.38 * np.asarray(df[atom_name].isin(ZNs)) + \
+              55.85 * np.asarray(df[atom_name].isin(FEs)) + \
+              54.94 * np.asarray(df[atom_name].isin(MNs)) + \
+              35.45 * np.asarray(df[atom_name].isin(CLs)) + \
+              39.10 * np.asarray(df[atom_name].isin(Ks)) + \
+              58.93 * np.asarray(df[atom_name].isin(COs)) + \
+              63.55 * np.asarray(df[atom_name].isin(CUs)) + \
+              200.6 * np.asarray(df[atom_name].isin(HGs)) + \
+              58.69 * np.asarray(df[atom_name].isin(NIs)) + \
+              78.97 * np.asarray(df[atom_name].isin(SEs)) + \
+              79.90 * np.asarray(df[atom_name].isin(BRs)) + \
+              126.9 * np.asarray(df[atom_name].isin(Is)) + \
+              87.62 * np.asarray(df[atom_name].isin(SRs)) + \
+              137.3 * np.asarray(df[atom_name].isin(BAs)) + \
+              28.07 * np.asarray( (df[atom_name] == 'CA') & (df[residue_name] == 'CA') ) #Differentiates calcium from alpha carbon
+    
+    masses = {'C' : 12.01,
+              'N' : 14.01,
+              'O' : 16.00,
+              'S' : 32.06,
+              'P' : 30.97,
+              'NA': 22.99,
+              'MG': 24.31,
+              'ZN': 65.38,
+              'FE': 55.85,
+              'MN': 54.94,
+              'CL': 35.45,
+              'K' : 39.10,
+              'CO': 58.93,
+              'CU': 63.55,
+              'HG': 200.6,
+              'NI': 58.69,
+              'SE': 78.97,
+              'BR': 79.90,
+              'I' : 126.9,
+              'SR': 87.62,
+              'BA': 137.3}
+    for entry in df[atom_name].drop_duplicates().tolist():
         if entry not in all_atoms:
-            if entry[0] in ['C', 'N', 'O', 'S', 'P']:
+            if entry[0] in ['C', 'N', 'O', 'S', 'P', 'K', 'I']:
                 include_atom = yn(f"Atom {entry} not recognized. Is it ok to treat this as element {entry[0]}?")
                 if include_atom:
-                    weights = weights + np.asarray(series==entry) * masses[entry[0]]
+                    weights = weights + np.asarray(df[atom_name]==entry) * masses[entry[0]]
+                else:
+                    yn(f'Atom {entry} not recognized. Please update code.')
+            elif entry[0:2] in all_atoms:
+                include_atom = yn(f"Atom {entry} not recognized. Is it ok to treat this as element {entry[0:2]}?")
+                if include_atom:
+                    weights = weights + np.asarray(df[atom_name]==entry) * masses[entry[0:2]]
                 else:
                     yn(f'Atom {entry} not recognized. Please update code.')
             else:
@@ -595,7 +664,7 @@ def exposure(pdb_path: str,
     n = coords.shape[0]
 
     if assignment == None:
-        assignment = {'': np.ones(n, dtype=bool)}
+        assignment = {'': np.ones(n)}
     if type(assignment) != dict:
         raise TypeError("assignment must be None or dict")
 
@@ -614,7 +683,7 @@ def exposure(pdb_path: str,
         return exposure_low_memory(pdb_path=pdb_path, out_path=out_path, yn=yn, max_atoms=mx, assignment=assignment, funcs=funcs, weight_by_amu=weight_by_amu, progress_callback=progress_callback)
 
     if weight_by_amu:
-        weight_vector = weights_from_series(series=df[atom_name], yn=yn)
+        weight_vector = weights_from_df(df=df, yn=yn)
 
     d_cond = pdist(coords)  
     for d in funcs:
@@ -717,11 +786,11 @@ def exposure_low_memory(pdb_path: str,
     step = max_atoms // 2
     n = len(coords)
     if weight_by_amu:
-        weight_vector = weights_from_series(series=df[atom_name], yn=yn)
+        weight_vector = weights_from_df(df=df, yn=yn)
         if assignment == None:
             assignment_vert1 = weight_vector
         elif type(assignment) == dict:
-            assignment_vert1 = np.ones((n, len(assignment)), dtype=bool)
+            assignment_vert1 = np.ones((n, len(assignment)))
             for ind, vert in enumerate(assignment.values()):
                 assignment_vert1[:,ind] = np.multiply(vert, weight_vector)
         else:
@@ -736,7 +805,6 @@ def exposure_low_memory(pdb_path: str,
         else:
             raise TypeError("assignment must be None or dict")
     
-    # sums1 = np.zeros_like(assignment_vert1, dtype=np.float64)
     assignment_vert = {}
     sums = {}
     for ind, _ in enumerate(funcs):
@@ -823,7 +891,10 @@ def exposure_low_memory(pdb_path: str,
         funcname = ''
         for ke, va in constants.items():
             funcname += ke[0] + str(va).replace('.','point')
-        max_score = d['max_score']
+        if weight_by_amu:
+            max_score = d['max_score']['weight_by_amu']
+        else:
+            max_score = d['max_score']['unweighted']
         if assignment:
             ind=0
             for ind, k in enumerate(assignment.keys()):
@@ -895,10 +966,10 @@ def max_exposure_score(funcs: dict[str, 'function'] | list[dict[str, 'function']
                              prot_df['_atom_site.Cartn_z'].to_numpy())).T
 
     if assignment == None:
-        assignment = {'tot': np.ones(len(coords_all), dtype=bool)}
+        assignment = {'tot': np.ones(len(coords_all))}
 
     if weight_by_amu:
-        weight_vector = weights_from_series(series=df['_atom_site.label_atom_id'], yn=yn)
+        weight_vector = weights_from_df(df=df, yn=yn)
 
     # Make do just one subunit
     coords_prot_sampled = coords_prot[:int(len(coords_prot)/8)]
