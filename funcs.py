@@ -525,42 +525,6 @@ def weights_from_series(series, yn):
     return weights
 
 
-def f2_cutoff(d: float|np.ndarray, cutoff: float = 50.0, eps: float = np.inf) -> float|np.ndarray:
-    """
-    Vector-safe (accepts scalars or numpy arrays for faster operation) version of scoring function. 
-    - Returns 0 for distances, d, above 0
-    - Returns d ** -2 for distances within cutoff
-    - Returns inf for distances ≈ 0 -> atom does not count towards its own score
-    - Replaces any nan/inf with finite numbers (0.0) for safety
-
-    Args:
-        d (scalar or numpy array): Distance between two atoms or array of distances between atoms.
-        cutoff (float, optional): Cutoff distance; inputs greater than this will return 0.
-        eps (float, optional): Epsilon used for distance ≈ 0. Purposefully infinite so that each atom does not contribute to its own score.
-
-    Returns:
-        scores (float or numpy array): Score or array of scores for input of scalar d or numpy array d, respectively.
-    """
-    da = np.asarray(d, dtype=float)
-
-    # avoid warnings but still produce controlled values
-    with np.errstate(divide='ignore', invalid='ignore'):
-        # replace zeros with eps before inverting/squaring to avoid inf
-        safe = np.where(da == 0.0, eps, da)
-        scores = 1.0 / (safe ** 2)
-
-    # zero out above cutoff
-    scores = np.where(da > cutoff, 0.0, scores)
-
-    # replace any non-finite values (shouldn't be any now) with 0.0
-    scores = np.nan_to_num(scores, nan=0.0, posinf=0.0, neginf=0.0)
-
-    # If input was scalar, return scalar float for compatibility
-    if np.isscalar(d):
-        return float(scores)
-    return scores
-
-
 def power_cutoff(d: float|np.ndarray, constants: dict, eps: float = np.inf) -> float|np.ndarray:
     """
     Vector-safe (accepts scalars or numpy arrays for faster operation) version of scoring function. 
@@ -640,6 +604,48 @@ def power_double_cutoff(d: float|np.ndarray, constants: dict, eps: float = np.in
 
     # zero out below close cutoff
     scores = np.where(da < cutoff_close, 0.0, scores)
+
+    # replace any non-finite values (shouldn't be any now) with 0.0
+    scores = np.nan_to_num(scores, nan=0.0, posinf=0.0, neginf=0.0)
+
+    # If input was scalar, return scalar float for compatibility
+    if np.isscalar(d):
+        return float(scores)
+    return scores
+
+
+def power_close_cutoff(d: float|np.ndarray, constants: dict, eps: float = np.inf) -> float|np.ndarray:
+    """
+    Vector-safe (accepts scalars or numpy arrays for faster operation) version of scoring function. 
+    - Returns 0 for distances, d, above 0
+    - Returns d ** -power for distances outside cutoff
+    - Returns 0 for distances ≈ 0 -> atom does not count towards its own score
+    - Replaces any nan/inf with finite numbers (0.0) for safety
+
+    Args:
+        d (scalar or numpy array): Distance between two atoms or array of distances between atoms.
+        constant (dict): Contains the following key:value pairs:
+            'power': scoring function is distance^-power
+            'cutoff': at distances less than cutoff, the scoring function returns 0.
+        eps (float, optional): Epsilon used for distance ≈ 0. Purposefully infinite so that each atom does not contribute to its own score.
+
+    Returns:
+        scores (float or numpy array): Score or array of scores for input of scalar d or numpy array d, respectively.
+    """
+
+    power = constants['power']
+    cutoff = constants['cutoff']
+
+    da = np.asarray(d, dtype=float)
+
+    # avoid warnings but still produce controlled values
+    with np.errstate(divide='ignore', invalid='ignore'):
+        # replace zeros with eps before inverting/squaring to avoid inf
+        safe = np.where(da == 0.0, eps, da)
+        scores = 1.0 / (safe ** power)
+
+    # zero out above cutoff
+    scores = np.where(da < cutoff, 0.0, scores)
 
     # replace any non-finite values (shouldn't be any now) with 0.0
     scores = np.nan_to_num(scores, nan=0.0, posinf=0.0, neginf=0.0)
