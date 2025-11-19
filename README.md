@@ -70,12 +70,12 @@ For more options, I use ChimeraX and will show example commands below. This shou
 
 #### To color proteins with standard coloring (assuming the model is #1):
 ```
-color byattribute bfactor #1 palette 20,#000000:15,#000088:10,#ff0000:5,#ffff00:0,#ffffff
+color byattribute bfactor #1 palette 100,#000000:75,#000088:50,#ff0000:25,#ffff00:0,#ffffff
 ```
 
 A key can be generated with
 ```
-key #ffffff:0 #ffff00:5 #ff0000:10 #000088:15 #000000:20 ticks true
+key #ffffff:0 #ffff00:25 #ff0000:50 #000088:75 #000000:100 ticks true
 ```
 
 #### To get local resolution by atom in ChimeraX:
