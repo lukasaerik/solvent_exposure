@@ -62,7 +62,7 @@ Under settings, you can decide whether to weight the contributions to exposure s
 
 ```cif_handling.py``` contains the background functions necessary to read, write, and manipulate mmCIF (.cif) files.
 
-As standard, raw (input) pdb/cif files can be placed into ```/pdbs/in/``` and calculated defattr files can be placed into ```/pdbs/out/defattr/```. Preprocessed files are automatically saved to ```/pdbs/preprocessed/``` and files where solvent exposure has been calculated are saved to ```/pdbs/out/```. Standards used for calculating maximum scores are saved under ```/standards/```.
+As standard, raw (input) pdb/cif files can be placed into ```/pdbs/in/``` and calculated defattr files can be placed into ```/pdbs/out/defattrs/```. Preprocessed files are automatically saved to ```/pdbs/preprocessed/``` and files where solvent exposure has been calculated are saved to ```/pdbs/out/```. Standards used for calculating maximum scores are saved under ```/standards/```.
 
 ## Visualising solvent exposure
 
@@ -88,7 +88,7 @@ measure mapvalues #3 atoms #1 attribute locres
 ```
 
 ```
-save 'XXXX\pdbs\out\XXXX.defattr' attrName locres models #1
+save 'XXXX/pdbs/out/defattrs/XXXX.defattr' attrName locres models #1
 ```
 
 (assuming model is #1, map is #2; useful for alignment, and local resolution map is #3)
