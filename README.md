@@ -48,6 +48,7 @@ It is, in principle, possible to run the GUI version as a standalone app without
 * It is not possible to change default settings
 * There are currently a limited number of calculations that can be run in GUI mode. I hope to make it more flexible as time allows, but running custom calculations for your own purposes is done more easily in python
 * Externally generated .exe files are sometimes flagged as a potential virus 
+
 I will not be making a standalone app available until major changes to the GUI and underlying functions are finished.
 
 ## Running
