@@ -2274,6 +2274,8 @@ class MainWindow(QMainWindow):
         for b in self.enable_disable:
             b.setEnabled(False)
 
+        print(self.current_manual_settings.get('preprocessed_path_assignment'))
+
         result = create_vectors(pdb_path=self.current_manual_settings.get('preprocessed_path_assignment'), 
                                 include=self.current_manual_settings.get('single_include'),
                                 feature=self.current_manual_settings.get('single_feature'))
@@ -2525,13 +2527,13 @@ class MainWindow(QMainWindow):
             function_type_col.addWidget(label)
             combo = QComboBox()
             combo.addItems(self.current_manual_settings.get('function_types'))
-            combo.activated.connect(lambda _, w=m, i=index: self._on_manual_reset_row(w,i))
             idx = combo.findText(op)
             if idx>=0:
                 combo.setCurrentIndex(idx)
             function_type_col.addWidget(combo)
             manual_function.addLayout(function_type_col)
             self.functions[index] = {'function': combo}
+            combo.activated.connect(lambda _, w=m, i=index: self._on_manual_reset_row(w,i))
 
             self.manual_function_values = {}
             for constant, cvalue in available_scoring_functions.get(op)['constants'].items():
@@ -2591,7 +2593,6 @@ class MainWindow(QMainWindow):
         function_type_col.addWidget(label)
         combo = QComboBox()
         combo.addItems(self.current_manual_settings.get('function_types'))
-        combo.currentIndexChanged.connect(lambda _, w=m, i=index: self._on_manual_reset_row(w,i))
         op = self.current_manual_settings.get('function_selected', 'Power')
         idx = combo.findText(op)
         if idx>=0:
@@ -2599,6 +2600,7 @@ class MainWindow(QMainWindow):
         function_type_col.addWidget(combo)
         manual_function.addLayout(function_type_col)
         self.functions[index] = {'function': combo}
+        combo.currentIndexChanged.connect(lambda _, w=m, i=index: self._on_manual_reset_row(w,i))
 
         self.manual_function_values = {}
         for constant, cvalue in self.current_manual_settings.get('function')['constants'].items():
@@ -2789,7 +2791,7 @@ class MainWindow(QMainWindow):
             'preprocess_folder_path': self.manual_preprocess_folder_edit.text(),
             'preprocess_include_selected': self.preprocess_include_combo.currentData(),
             'preprocess_redefine_chains': self.preprocess_redefine_chains,
-            'preprocessed_path_assignment': self.manual_preprocess_file_edit.text(),
+            'preprocessed_path_assignment': self.manual_assignment_file_edit.text(),
             'single_include': self.manual_single_include_combo.currentData(),
             'single_feature': self.manual_single_feature_combo.currentText(),
             'three_include': self.manual_three_include_combo.currentData(),
