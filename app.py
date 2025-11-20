@@ -1393,7 +1393,7 @@ class MainWindow(QMainWindow):
             if self.preprocess_include_combo.model().item(i).text() in self.current_manual_settings.get('preprocess_include_selected', ['C', 'N', 'O', 'S']):
                 self.preprocess_include_combo.model().item(i).setCheckState(Qt.CheckState.Checked)
         preprocess_include_row.addWidget(self.preprocess_include_combo)
-        manual_preprocess_form.addLayout(preprocess_include_row)
+        # manual_preprocess_form.addLayout(preprocess_include_row)
 
         # Relabel chains checkbox
         self.preprocess_redefine_chains_checkbox = QCheckBox('Relabel chains alphabetically?')
@@ -2284,13 +2284,10 @@ class MainWindow(QMainWindow):
         for b in self.enable_disable:
             b.setEnabled(False)
 
-        print(self.current_manual_settings.get('preprocessed_path_assignment'))
-
         result = create_vectors(pdb_path=self.current_manual_settings.get('preprocessed_path_assignment'), 
                                 include=self.current_manual_settings.get('single_include'),
                                 feature=self.current_manual_settings.get('single_feature'))
         
-
         if overwrite:
             self.current_manual_settings['assignment_vectors'] = result
         elif self.current_manual_settings.get('assignment_vectors') == None:

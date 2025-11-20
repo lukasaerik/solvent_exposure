@@ -101,23 +101,23 @@ def cif_to_df(path:str):
         '_atom_site.id': 8,
         '_atom_site.type_symbol': 17,
         '_atom_site.label_atom_id': 20,
-        '_atom_site.label_alt_id': 26,
-        '_atom_site.label_comp_id': 28,
-        '_atom_site.label_asym_id': 33,
-        '_atom_site.label_entity_id': 37,
-        '_atom_site.label_seq_id': 40,
-        '_atom_site.pdbx_PDB_ins_code': 45,
-        '_atom_site.Cartn_x': 47,
-        '_atom_site.Cartn_y': 56,
-        '_atom_site.Cartn_z': 65,
-        '_atom_site.occupancy': 74,
-        '_atom_site.B_iso_or_equiv': 79,
-        '_atom_site.pdbx_formal_charge': 87,
-        '_atom_site.auth_seq_id': 89,
-        '_atom_site.auth_comp_id': 95,
-        '_atom_site.auth_asym_id': 101,
-        '_atom_site.auth_atom_id': 105,
-        '_atom_site.pdbx_PDB_model_num': 111
+        '_atom_site.label_alt_id': 28,
+        '_atom_site.label_comp_id': 30,
+        '_atom_site.label_asym_id': 35,
+        '_atom_site.label_entity_id': 39,
+        '_atom_site.label_seq_id': 44,
+        '_atom_site.pdbx_PDB_ins_code': 49,
+        '_atom_site.Cartn_x': 51,
+        '_atom_site.Cartn_y': 60,
+        '_atom_site.Cartn_z': 69,
+        '_atom_site.occupancy': 78,
+        '_atom_site.B_iso_or_equiv': 83,
+        '_atom_site.pdbx_formal_charge': 91,
+        '_atom_site.auth_seq_id': 93,
+        '_atom_site.auth_comp_id': 99,
+        '_atom_site.auth_asym_id': 105,
+        '_atom_site.auth_atom_id': 109,
+        '_atom_site.pdbx_PDB_model_num': 117
     }
 
     # merge inferred with overrides (override wins)
@@ -239,31 +239,25 @@ def read_pdb_mmcif(filepath: str, append_heteroatoms: 'function' = None) -> Pand
         raise ValueError('Wrong file format; allowed file formats are .pdb, .pdb.gz, .ent, .ent.gz, .cif, .cif.gz')
 
 
-def generate_indices(n_atoms:int, half_max_n:int) -> list:
-    '''
-    For generating which atoms to select for running multiple (k*(k+1)) pdist functions for one calculation.
-    Returns a list with k*(k-1) entries, each a 1 x max_n (or shorter) numpy array, where k = math.ceil(n_atoms / (max_n // 2)) - 1
-    Each row corresponds to one set of atoms (the entries of the row are the indices of the atom in the whole chain) which can have pdist run.
-    
+def max_m_for_full_matrix(n: int, fraction_of_avail: float = 0.6, dtype: type = np.float64) -> int:
+    """
+    Calculates size, m, of an m x n matrix with specified dtype that can be generated when using a specified fraction of available memory. 
+    Useful for running large cdist calculations safely
+
     Args:
-        n_atoms (int): number of atoms in input chain
-        max_n (int): maximum number of atoms pdist can be run on
+        n (int): Defined row length. e.g., total number of atoms in larger cdist entry.
+        fraction_of_avail (float, optional): Maximum fraction of available memory to use for the matrix.
+        dtype (type, optional): data type of matrix elements.
 
     Returns:
-        out (list): A list with k*(k-1) entries, each a 1 x max_n (or shorter) numpy array.
-
-    Raises:
-        ValueError: If a single pdist can be used instead.
-    '''
-    if n_atoms <= half_max_n * 2:
-        raise ValueError('A single pdist can be used instead.')
-    k = math.ceil(n_atoms / half_max_n) - 1
-    out = []
-    for i in range(k):
-        for j in range(k-i):
-            out += [np.append(np.arange(i*half_max_n, (i+1)*half_max_n), np.arange((i+j+1)*half_max_n, min((i+j+2)*half_max_n, n_atoms)))]
-
-    return out
+        (int): Size, n, of the largest n x n matrix to use, at maximum, the fraction of availale memory.
+    """
+    # fraction_of_avail: fraction of available RAM to use for the matrix
+    avail = psutil.virtual_memory().available
+    bytes_per_element = np.dtype(dtype).itemsize
+    max_bytes = int(avail * fraction_of_avail)
+    # n * m * bytes_per_element <= max_bytes  ->  m <= (max_bytes/bytes_per_element)/n
+    return int(math.floor(max_bytes / bytes_per_element / n))
 
 
 def preprocess(pdb_path: str,
@@ -611,128 +605,8 @@ def power_close_cutoff(d: float|np.ndarray, constants: dict, eps: float = np.inf
 
 
 def exposure(pdb_path: str,
-             out_path: str,
-             yn: 'function',
-             assignment: None | dict[str, np.ndarray] = None, 
-             funcs: dict[str, 'function'] | list[dict[str, 'function']] = {'scoring_function': power_double_cutoff,
-                                                                           'constants': {'power': 2, 'cutoff_far': 50, 'cutoff_close':1.85},
-                                                                           'max_score': {'weight_by_amu': 423.01, 'unweighted': 31.04}},
-             weight_by_amu: bool = True,
-             progress_callback: 'function' = None) -> list[list[str|float|float]]:
-    """
-    Saves a pdb with b-factor set to the solvent exposure score for all atoms in the pdb supplied. 
-    It is recommended to run on preprocessed pdb files, so that decisions on how to handle non-standard atoms and residues are made and hydrogen atoms are removed.
-    A standard scoring function and maximum score are used by default, but one in able to experiment with these if they are interested.
-
-    Args:
-        pdb_path (str): The path of the file to use in score calculation (typically pdb or mmcif). It has n atoms.
-        out_path (str): The path of the folder inside which the output pdb will be saved.
-        yn (function): For obtaining user input for yes/no questions.
-        assignment (None or dict[str, numpy array], optional): Dictionary with value(s) that are length n numpy arrays. 
-            As standard, these are boolean arrays used to obtain solvent exposure scores only accounting for the contribution of atoms with entries = True/1 while ignore the contribution of atoms with entries False/0. 
-            In principle, this can be used for any algebraic operation, including calculating solvent exposure scores with weighted scores from each atom.
-        funcs (dict[str: function], optional): Dictionary with value(s) calling scoring function(s) and their associated constant(s). 
-        weight_by_amu (bool, optional): If True, as default, weights contributions to score by atomic mass of the paired atom. If False, doesn't.
-        progress_callback (None or function, optional): If None, as default, progress messages are printed. If a function is given, custom behaviour can be implemented, such as for printing in a GUI during the run. 
-
-    Returns:
-        out (list[list[str, float, float]]): A list with one list entry (sublist) per pdb saved. 
-            Each sublist contains three entries: the first is the path of the saved pdb, the second is the minimum solvent exposure score in the saved pdb, and the third is the maximum solvent exposure score in the saved pdb.
-
-    Raises:
-        TypeError: assignment must be None or dict.
-    """
-
-    if type(funcs) == dict:
-        funcs:list = [funcs]
-    if type(funcs) != list:
-        raise TypeError('funcs must be a dict or list of dict(s).')
-
-    atomic_df, filename, cifdata = read_pdb_mmcif(filepath=pdb_path, append_heteroatoms=True)
-    if cifdata == 'pdb':
-        df = atomic_df.df['ATOM'].copy()
-        x_coord, y_coord, z_coord, b_factor, atom_name = 'x_coord', 'y_coord', 'z_coord', 'b_factor', 'atom_name'
-    else:
-        df = atomic_df
-        x_coord, y_coord, z_coord, b_factor, atom_name = '_atom_site.Cartn_x', '_atom_site.Cartn_y', '_atom_site.Cartn_z', '_atom_site.B_iso_or_equiv', '_atom_site.label_atom_id'
-    
-    coords = np.vstack((df[x_coord].to_numpy(), 
-                        df[y_coord].to_numpy(), 
-                        df[z_coord].to_numpy())).T
-    out = []
-
-    n = coords.shape[0]
-
-    if assignment == None:
-        assignment = {'': np.ones(n)}
-    if type(assignment) != dict:
-        raise TypeError("assignment must be None or dict")
-
-    mx = max_len_for_full_matrix()
-
-    if n > mx:
-        msg = 'Running funcs.exposure_low_memory() to allow calculation for large molecule.'
-        if progress_callback:
-            try:
-                progress_callback(msg)
-            except Exception:
-                print(msg)
-        else:
-            print(msg)
-
-        return exposure_low_memory(pdb_path=pdb_path, out_path=out_path, yn=yn, max_atoms=mx, assignment=assignment, funcs=funcs, weight_by_amu=weight_by_amu, progress_callback=progress_callback)
-
-    if weight_by_amu:
-        weight_vector = weights_from_df(df=df, yn=yn)
-
-    d_cond = pdist(coords)  
-    for d in funcs:
-        func = d['scoring_function']
-        constants = d['constants']
-        funcname = ''
-        for ke, va in constants.items():
-            funcname += ke[0] + str(va).replace('.','point')
-        if weight_by_amu:
-            max_score = d['max_score']['weight_by_amu']
-        else:
-            max_score = d['max_score']['unweighted']
-        vals = func(d_cond, constants)
-
-        for k, assignment_vert in assignment.items():
-            if weight_by_amu:
-                assignment_vert = np.multiply(assignment_vert, weight_vector)
-            idx = 0
-            sums = np.zeros(n, dtype=vals.dtype)
-            for i in range(n - 1):
-                l = n - i - 1
-                block = vals[idx: idx + l]
-                sums[i] += np.dot(block, assignment_vert[i+1: n])
-                if assignment_vert[i] != 0:
-                    sums[i+1: n] += block * assignment_vert[i]
-                idx += l
-
-            if max_score == 0:
-                df[b_factor] = sums
-            else:
-                df[b_factor] = 100 / max_score * (max_score - sums)
-
-            if cifdata == 'pdb':
-                outname = os.path.join(out_path, filename + '_' + k + '_' + funcname + '.pdb')
-                atomic_df.df['ATOM'] = df.copy()
-                atomic_df.to_pdb(outname)
-            else:
-                outname = os.path.join(out_path, filename + '_' + k + '_' + funcname + '.cif')
-                df_to_cif(outname, df=df, cifdata=cifdata)
-
-            out += [[outname, min(df[b_factor]), max(df[b_factor])]]
-
-    return out
-
-
-def exposure_low_memory(pdb_path: str,
                         out_path: str,
                         yn: 'function',
-                        max_atoms: int,
                         assignment: None | dict[str, np.ndarray] = None, 
                         funcs: dict[str, 'function'] | list[dict[str, 'function']] = {'scoring_function': power_double_cutoff,
                                                                            'constants': {'power': 2, 'cutoff_far': 50, 'cutoff_close':1.85},
@@ -748,7 +622,6 @@ def exposure_low_memory(pdb_path: str,
         pdb_path (str): The path of the file to use in score calculation (typically pdb or mmcif). It has n atoms.
         out_path (str): The path of the folder inside which the output pdb will be saved.
         yn (function): For obtaining user input for yes/no questions.
-        max_atoms (int): Length of maximum array pdist can be run on. Typically the return of funcs.max_len_for_full_matrix().
         assignment (None or dict[str, numpy array], optional): Dictionary with value(s) that are length n numpy arrays. 
             As standard, these are boolean arrays used to obtain solvent exposure scores only accounting for the contribution of atoms with entries = True/1 while ignore the contribution of atoms with entries False/0. 
             In principle, this can be used for any algebraic operation, including calculating solvent exposure scores with weighted scores from each atom.
@@ -775,7 +648,7 @@ def exposure_low_memory(pdb_path: str,
         x_coord, y_coord, z_coord, b_factor, atom_name = 'x_coord', 'y_coord', 'z_coord', 'b_factor', 'atom_name'
     else:
         df = atomic_df
-        x_coord, y_coord, z_coord, b_factor, atom_nem = '_atom_site.Cartn_x', '_atom_site.Cartn_y', '_atom_site.Cartn_z', '_atom_site.B_iso_or_equiv', '_atom_site.label_atom_id'
+        x_coord, y_coord, z_coord, b_factor, atom_name = '_atom_site.Cartn_x', '_atom_site.Cartn_y', '_atom_site.Cartn_z', '_atom_site.B_iso_or_equiv', '_atom_site.label_atom_id'
     
     coords = np.vstack((df[x_coord].to_numpy(), 
                         df[y_coord].to_numpy(), 
@@ -783,25 +656,28 @@ def exposure_low_memory(pdb_path: str,
         
     out=[]
 
-    step = max_atoms // 2
     n = len(coords)
     if weight_by_amu:
         weight_vector = weights_from_df(df=df, yn=yn)
         if assignment == None:
             assignment_vert1 = weight_vector
+            assignment_vert1.shape = (n,1)
         elif type(assignment) == dict:
             assignment_vert1 = np.ones((n, len(assignment)))
             for ind, vert in enumerate(assignment.values()):
                 assignment_vert1[:,ind] = np.multiply(vert, weight_vector)
+            assignment_vert1.shape = (n, len(assignment))
         else:
             raise TypeError("assignment must be None or dict")
     else:
         if assignment == None:
-            assignment_vert1 = np.ones(n, dtype=bool)
+            assignment_vert1 = np.ones((n,1), dtype=bool)
+            assignment_vert1.shape = (n,1)
         elif type(assignment) == dict:
             assignment_vert1 = np.ones((n, len(assignment)), dtype=bool)
             for ind, vert in enumerate(assignment.values()):
                 assignment_vert1[:,ind] = vert
+            assignment_vert1.shape = (n, len(assignment))
         else:
             raise TypeError("assignment must be None or dict")
     
@@ -811,24 +687,34 @@ def exposure_low_memory(pdb_path: str,
         assignment_vert[ind] = assignment_vert1
         sums[ind] = np.zeros_like(assignment_vert1, dtype=np.float64)
 
-    r1 = math.ceil(n / step) - 1
-    gx = generate_indices(n_atoms=n, half_max_n=step)
-    iters = len(gx)
+    percentages = [50]
+    if n>=10000:
+        percentages.append(25)
+    if n>=30000:
+        percentages.append(10)
+    if n>=50000:
+        percentages.append(75)
+    if n>=100000:
+        percentages.append(5)
+    if n>=200000:
+        percentages.append(1)
+    readouts = np.array(percentages) * n // 100
     start = time.time()
-    current = time.time()-start
-    msg = f'Started matrix calculation 1 of {iters}.'
-    if progress_callback:
-        try:
-            progress_callback(msg)
-        except Exception:
-            print(msg)
-    else:
-        print(msg)
-
-    for k, m in enumerate(gx):
-        if k != 0:
+    for i in range(n-1):
+        d_cond = cdist([coords[i]], coords[i+1:])
+        for ind, d in enumerate(funcs):
+            func = d['scoring_function']
+            constants = d['constants']
+            if weight_by_amu:
+                max_score = d['max_score']['weight_by_amu']
+            else:
+                max_score = d['max_score']['unweighted']
+            vals = func(d_cond, constants)
+            sums[ind][i:i+1] += vals @ assignment_vert[ind][i+1:]
+            sums[ind][i+1:] += vals.T @ assignment_vert[ind][i:i+1]
+        if i in readouts:
             current = time.time()-start
-            msg = f'Started matrix calculation {k+1} of {iters} after {current:.1f} seconds. Estimated {(iters-k)*current/(k):.1f} seconds remaining.'
+            msg = f'{round(i * 100 / n)}% complete in {current:.1f} seconds. Estimated {(n-i)*current/(i):.1f} seconds remaining.'
             if progress_callback:
                 try:
                     progress_callback(msg)
@@ -836,54 +722,6 @@ def exposure_low_memory(pdb_path: str,
                     print(msg)
             else:
                 print(msg)
-        d_cond = pdist(coords[m])
-        for ind, d in enumerate(funcs):
-            func = d['scoring_function']
-            constants = d['constants']
-            # funcname = ''
-            # for ke, va in constants.items():
-            #     funcname += ke[0] + str(va).replace('.','point')
-            if weight_by_amu:
-                max_score = d['max_score']['weight_by_amu']
-            else:
-                max_score = d['max_score']['unweighted']
-            vals = func(d_cond, constants)
-            nm=len(m)    
-            if k == 0:
-                idx=0
-                for i in range(nm-1):
-                    l = nm - i - 1
-                    block = vals[idx:idx+l]
-                    sums[ind][m[i]] += np.dot(block, assignment_vert[ind][m[i+1:nm]])
-                    if assignment:
-                        sums[ind][m[i+1:nm]] += np.outer(block, assignment_vert[ind][m[i]])
-                    else:
-                        sums[ind][m[i+1:nm]] += block * assignment_vert[ind][m[i]]
-                    idx += l
-
-            elif k < r1:
-                idx=0
-                for i in range(nm-1):
-                    l = nm - i - 1
-                    block = vals[max(idx, idx+l-(nm-step)):idx+l]
-                    sums[ind][m[i]] += np.dot(block, assignment_vert[ind][m[max(i+1, step):nm]])
-                    if assignment:
-                        sums[ind][m[max(i+1, step):nm]] += np.outer(block, assignment_vert[ind][m[i]])
-                    else:
-                        sums[ind][m[max(i+1, step):nm]] += block * assignment_vert[ind][m[i]]
-                    idx += l
-                    
-            else:
-                idx=0
-                for i in range(step):
-                    l = nm - i - 1
-                    block = vals[max(idx, idx+l-(nm-step)):idx+l]
-                    sums[ind][m[i]] += np.dot(block, assignment_vert[ind][m[max(i+1, step):nm]])
-                    if assignment:
-                        sums[ind][m[max(i+1, step):nm]] += np.outer(block, assignment_vert[ind][m[i]])
-                    else:
-                        sums[ind][m[max(i+1, step):nm]] += block * assignment_vert[ind][m[i]]
-                    idx += l
 
     for indf, d in enumerate(funcs):
         func = d['scoring_function']
@@ -925,7 +763,6 @@ def exposure_low_memory(pdb_path: str,
                 outname = os.path.join(out_path, filename + '_' + funcname + '.cif')
                 df_to_cif(outname, df=df, cifdata=cifdata)
             out += [[outname, min(df[b_factor]), max(df[b_factor])]]
-
     
     return out
 
@@ -1769,65 +1606,6 @@ def reciprocal_ticks(mn: float,
                 break
 
     return np.array(ticks)
-
-
-def max_n_for_full_matrix(fraction_of_avail: float = 0.6, dtype: type = np.float64) -> int:
-    """
-    Calculates size, n, of an n x n matrix with specified dtype that can be generated when using a specified fraction of available memory.
-
-    Args:
-        fraction_of_avail (float, optional): Maximum fraction of available memory to use for the matrix.
-        dtype (type): data type of matrix elements.
-
-    Returns:
-        (int): Size, n, of the largest n x n matrix to use, at maximum, the fraction of availale memory.
-    """
-    # fraction_of_avail: fraction of available RAM to use for the matrix
-    avail = psutil.virtual_memory().available
-    bytes_per_element = np.dtype(dtype).itemsize
-    max_bytes = int(avail * fraction_of_avail)
-    # n^2 * bytes_per_element <= max_bytes  ->  n <= sqrt(max_bytes/bytes_per_element)
-    return int(math.floor(math.sqrt(max_bytes / bytes_per_element)))
-
-
-def max_m_for_full_matrix(n: int, fraction_of_avail: float = 0.6, dtype: type = np.float64) -> int:
-    """
-    Calculates size, m, of an m x n matrix with specified dtype that can be generated when using a specified fraction of available memory. 
-    Useful for running large cdist calculations safely
-
-    Args:
-        n (int): Defined row length. e.g., total number of atoms in larger cdist entry.
-        fraction_of_avail (float, optional): Maximum fraction of available memory to use for the matrix.
-        dtype (type, optional): data type of matrix elements.
-
-    Returns:
-        (int): Size, n, of the largest n x n matrix to use, at maximum, the fraction of availale memory.
-    """
-    # fraction_of_avail: fraction of available RAM to use for the matrix
-    avail = psutil.virtual_memory().available
-    bytes_per_element = np.dtype(dtype).itemsize
-    max_bytes = int(avail * fraction_of_avail)
-    # n * m * bytes_per_element <= max_bytes  ->  m <= (max_bytes/bytes_per_element)/n
-    return int(math.floor(max_bytes / bytes_per_element / n))
-
-
-def max_len_for_full_matrix(fraction_of_avail: float = 0.6, dtype: type = np.float64) -> int:
-    """
-    Calculates length, n, of a 1 x [n*(n-1)/2] matrix with specified dtype that can be generated when using a specified fraction of available memory.
-    When running scipy.spatial.distance.pdist, this is the maximum number, n, of atoms that can be run without using up more than the fraction of available memory.
-
-    Args:
-        fraction_of_avail (float, optional): Maximum fraction of available memory to use for the matrix.
-        dtype (type): data type of matrix elements.
-
-    Returns:
-        (int): Size, n, of the largest n x n matrix to use, at maximum, the fraction of availale memory.
-    """
-    # fraction_of_avail: fraction of available RAM to use for the matrix
-    avail = psutil.virtual_memory().available
-    bytes_per_element = np.dtype(dtype).itemsize
-    max_bytes = int(avail * fraction_of_avail)
-    return int(math.floor((1 + math.sqrt(1+ 8 * max_bytes / bytes_per_element))/2))
 
 
 available_scoring_functions = {'Power2': {'scoring_function': power_cutoff,

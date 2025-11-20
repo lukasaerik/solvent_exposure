@@ -45,6 +45,7 @@ __pycache__/
 ##############
 test.py
 test.ipynb
+funcs_old.py
 
 # Nonstandard pdbs/cifs #
 #########################
