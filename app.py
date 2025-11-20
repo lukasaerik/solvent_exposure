@@ -1756,6 +1756,8 @@ class MainWindow(QMainWindow):
         self.worker.error.connect(self.on_worker_simple_error)
         self.worker.finished.connect(self.thread.quit)
         self.worker.finished.connect(self.worker.deleteLater)
+        self.worker.error.connect(self.thread.quit)
+        self.worker.error.connect(self.worker.deleteLater)
         self.thread.finished.connect(self.thread.deleteLater)
         
         self.worker.ask.connect(self._on_worker_ask_question)
@@ -1811,6 +1813,8 @@ class MainWindow(QMainWindow):
         self.worker.error.connect(self.on_worker_adduct_pre_error)
         self.worker.finished.connect(self.thread.quit)
         self.worker.finished.connect(self.worker.deleteLater)
+        self.worker.error.connect(self.thread.quit)
+        self.worker.error.connect(self.worker.deleteLater)
         self.thread.finished.connect(self.thread.deleteLater)
         
         self.worker.ask.connect(self._on_worker_ask_question)
@@ -1869,6 +1873,8 @@ class MainWindow(QMainWindow):
             self.worker.error.connect(self.on_worker_adduct_out_error)
             self.worker.finished.connect(self.thread.quit)
             self.worker.finished.connect(self.worker.deleteLater)
+            self.worker.error.connect(self.thread.quit)
+            self.worker.error.connect(self.worker.deleteLater)
             self.thread.finished.connect(self.thread.deleteLater)
             
             self.worker.ask.connect(self._on_worker_ask_question)
@@ -1942,6 +1948,8 @@ class MainWindow(QMainWindow):
         self.worker.error.connect(self.on_worker_plot_error)
         self.worker.finished.connect(self.thread.quit)
         self.worker.finished.connect(self.worker.deleteLater)
+        self.worker.error.connect(self.thread.quit)
+        self.worker.error.connect(self.worker.deleteLater)
         self.thread.finished.connect(self.thread.deleteLater)
         
         self.worker.ask.connect(self._on_worker_ask_question)
@@ -2174,6 +2182,8 @@ class MainWindow(QMainWindow):
         self.worker.error.connect(self.on_worker_manual_preprocess_error)
         self.worker.finished.connect(self.thread.quit)
         self.worker.finished.connect(self.worker.deleteLater)
+        self.worker.error.connect(self.thread.quit)
+        self.worker.error.connect(self.worker.deleteLater)
         self.thread.finished.connect(self.thread.deleteLater)
         self.worker.ask.connect(self._on_worker_ask_question)
 
@@ -2736,6 +2746,8 @@ class MainWindow(QMainWindow):
             self.worker.error.connect(self.on_worker_manual_calculate_error)
             self.worker.finished.connect(self.thread.quit)
             self.worker.finished.connect(self.worker.deleteLater)
+            self.worker.error.connect(self.thread.quit)
+            self.worker.error.connect(self.worker.deleteLater)
             self.thread.finished.connect(self.thread.deleteLater)
             self.worker.ask.connect(self._on_worker_ask_question)
 
