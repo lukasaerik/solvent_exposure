@@ -793,7 +793,7 @@ def max_exposure_score(funcs: dict[str, 'function'] | list[dict[str, 'function']
     if type(funcs) != list:
         raise TypeError('funcs must be a dict or list of dict(s).')
     
-    df = pd.read_pickle('standards/rubisco.pkl')
+    df = pd.read_pickle(os.path.join(basedir, 'standards', 'rubisco.pkl'))
     coords_all = np.vstack((df['_atom_site.Cartn_x'].to_numpy(), 
                             df['_atom_site.Cartn_y'].to_numpy(), 
                             df['_atom_site.Cartn_z'].to_numpy())).T
@@ -1614,6 +1614,6 @@ available_scoring_functions = {'Power2': {'scoring_function': power_cutoff,
                                'Power3': {'scoring_function': power_double_cutoff,
                                           'constants': {'power': 3, 'cutoff_far': 50, 'cutoff_close': 1.85},
                                           'max_score': {'weight_by_amu': 30, 'unweighted': 2.22}},
-                                         }
+    }
 
 

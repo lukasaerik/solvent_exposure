@@ -2684,11 +2684,11 @@ class MainWindow(QMainWindow):
                     if weight % 1 == 0:
                         weight = int(weight)
                     if i == 0:
-                        result = list(create_vectors(pdb_path='standards/rubisco.pkl', 
+                        result = list(create_vectors(pdb_path=os.path.join(basedir, 'standards', 'rubisco.pkl'), 
                                                      include=include,
                                                      feature=feature).values())[0] * weight
                     else:
-                        result = result + list(create_vectors(pdb_path='standards/rubisco.pkl', 
+                        result = result + list(create_vectors(pdb_path=os.path.join(basedir, 'standards', 'rubisco.pkl'), 
                                                               include=include,
                                                               feature=feature).values())[0] * weight
                 ass = {'weighted': result}
