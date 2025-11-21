@@ -7,7 +7,7 @@ flags = [
     "--disable-logging",
     "--log-level=3",
     "--disable-software-rasterizer",
-    "--disable-gpu",               # try remove this if you want to allow GPU; keep if crashes
+    "--disable-gpu",               
     "--disable-gpu-compositing",
     "--disable-gpu-sandbox",
     "--disable-accelerated-2d-canvas",
@@ -17,7 +17,7 @@ flags = [
     "--disable-dev-shm-usage",
     "--ignore-gpu-blacklist",
     "--enable-webgl",
-    "--use-gl=angle",              # use ANGLE on Windows (Direct3D)
+    "--use-gl=angle",              
 ]
 
 os.environ["QTWEBENGINE_CHROMIUM_FLAGS"] = " ".join(flags)
@@ -47,7 +47,8 @@ except Exception:
     QWebEngineProfile = None
 
 from PyQt6.QtCore import Qt, QObject, QThread, pyqtSignal, QEventLoop, QEvent, QUrl
-from PyQt6.QtGui import QAction, QIcon, QPalette, QStandardItem, QStandardItemModel, QFontMetrics, QKeySequence
+from PyQt6.QtGui import (QAction, QIcon, QPalette, QStandardItem, QStandardItemModel, 
+                         QFontMetrics, QKeySequence,)
 from PyQt6.QtWidgets import (
     QApplication,
     QCheckBox,
@@ -72,7 +73,8 @@ from PyQt6.QtWidgets import (
 from funcs import ( preprocess, create_3_vectors, create_vectors, exposure,
                     score_v_localres, features, getcols, average_score, visualize,
                     score_v_localres_plotly, max_exposure_score, max_m_for_full_matrix, 
-                    standard_residues, available_scoring_functions, standard_atoms, all_atoms)
+                    standard_residues, available_scoring_functions, standard_atoms, all_atoms,
+)
 
 basedir = os.path.dirname(__file__)
 
@@ -1212,7 +1214,7 @@ class MainWindow(QMainWindow):
         # Top controls: PDB path and a render button
         controls_h = QHBoxLayout()
         self.visuals_pdb_edit = QLineEdit()
-        self.visuals_pdb_edit.setText(os.path.join(basedir, 'pdbs', 'out', '1u7g_2c50.pdb'))  # default
+        self.visuals_pdb_edit.setText(os.path.join(basedir, 'pdbs', 'out', '1u7g_2c50.pdb'))
         self.visuals_browse = QPushButton('Browse...')
         self.visuals_browse.clicked.connect(self._browse_visuals_file)
         controls_h.addWidget(QLabel('PDB/mmCIF:'))
