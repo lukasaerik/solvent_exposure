@@ -831,7 +831,7 @@ class ScriptWorker(QObject):
 
             pre_out = preprocess(pdb_path=pdb_path, pre_path=pre_path, yn=self.yes_no, pickle_out=pickle_pre)
             self.progress.emit('Preprocessing complete')
-            if pre_out.rsplit('.',1)[1] == 'cif':
+            if pre_out.rsplit('.',1)[1] in ['cif', 'pkl']:
                 if feature == 'chain_id':
                     feature = '_atom_site.label_asym_id'
                 elif feature == 'residue_name':
@@ -857,7 +857,7 @@ class ScriptWorker(QObject):
             backbone = settings.get('backbone')
             weight = settings.get('weight_by_atomic_mass')
 
-            if pdb_path.rsplit('.',1)[1] == 'cif':
+            if pdb_path.rsplit('.',1)[1] in ['cif', 'pkl']:
                 if feature == 'chain_id':
                     feature = '_atom_site.label_asym_id'
                 elif feature == 'residue_name':
