@@ -72,7 +72,7 @@ from PyQt6.QtWidgets import (
 
 from funcs import ( preprocess, create_3_vectors, create_vectors, exposure,
                     score_v_localres, features, getcols, average_score, visualize,
-                    score_v_localres_plotly, max_exposure_score, max_m_for_full_matrix, 
+                    score_v_localres_plotly, max_exposure_score,
                     standard_residues, available_scoring_functions, standard_atoms, all_atoms,
 )
 
