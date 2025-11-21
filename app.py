@@ -799,8 +799,9 @@ class ScriptWorker(QObject):
             average = settings.get('average')
             backbone = settings.get('backbone')
             weight = settings.get('weight_by_atomic_mass')
+            pickle_pre = settings.get('pickle_preprocessed')
 
-            pre_out = preprocess(pdb_path=pdb_path, pre_path=pre_path, yn=self.yes_no)
+            pre_out = preprocess(pdb_path=pdb_path, pre_path=pre_path, yn=self.yes_no, pickle_out=pickle_pre)
             self.progress.emit('Preprocessing complete')
             result = exposure(pdb_path=pre_out, out_path=out_path, yn=self.yes_no, weight_by_amu=weight, progress_callback=self.progress.emit)
             if average:
@@ -824,8 +825,9 @@ class ScriptWorker(QObject):
             pdb_path = settings.get('pdb_path')
             pre_path = settings.get('folder_pre_path')
             feature = settings.get('feature')
+            pickle_pre = settings.get('pickle_preprocessed')
 
-            pre_out = preprocess(pdb_path=pdb_path, pre_path=pre_path, yn=self.yes_no)
+            pre_out = preprocess(pdb_path=pdb_path, pre_path=pre_path, yn=self.yes_no, pickle_out=pickle_pre)
             self.progress.emit('Preprocessing complete')
             if pre_out.rsplit('.',1)[1] == 'cif':
                 if feature == 'chain_id':
@@ -900,8 +902,9 @@ class ScriptWorker(QObject):
             pre_path = settings.get('preprocess_folder_path')
             # include = settings.get('preprocess_include_selected')
             redefine_chains = settings.get('preprocess_redefine_chains')
+            pickle_pre = settings.get('pickle_preprocessed')
 
-            result = preprocess(pdb_path=pdb_path, pre_path=pre_path, yn=self.yes_no, redefine_chains=redefine_chains)
+            result = preprocess(pdb_path=pdb_path, pre_path=pre_path, yn=self.yes_no, redefine_chains=redefine_chains, pickle_out=pickle_pre)
             self.finished.emit(result)
         except Exception as e:
             self.error.emit(str(e))
@@ -976,6 +979,7 @@ class MainWindow(QMainWindow):
         self.enable_disable = []
         self.all_settings = []
         self.weight_by_atomic_mass = True
+        self.pickle_preprocessed = False
 
         file_menu = self.menuBar().addMenu('&File')
         close_action = QAction('Close', self)
@@ -986,16 +990,23 @@ class MainWindow(QMainWindow):
         self.addAction(close_action)
 
         settings_menu = self.menuBar().addMenu('&Settings')
+        settings_menu.setToolTipsVisible(True)
         self.weight_by_atomic_mass_button = QAction("&Weight by atomic mass", self)
-        self.weight_by_atomic_mass_button.setStatusTip("Would you like to weight contributions to score by atomic mass? This will change max score.")
+        self.weight_by_atomic_mass_button.setToolTip("Would you like to weight contributions to score by atomic mass? This will change max score.")
         self.weight_by_atomic_mass_button.triggered.connect(self.weight_by_atomic_mass_clicked)
         self.weight_by_atomic_mass_button.setCheckable(True)
         self.weight_by_atomic_mass_button.setChecked(self.weight_by_atomic_mass)
         self.enable_disable.append(self.weight_by_atomic_mass_button)
         settings_menu.addAction(self.weight_by_atomic_mass_button)
 
-        
-        
+        self.pickle_preprocessed_button = QAction('&Compress Preprocessed', self)
+        self.pickle_preprocessed_button.setToolTip("Would you like to compress preprocessed files? This will speed up file saving/reading, but makes troubleshooting more difficult.")
+        self.pickle_preprocessed_button.triggered.connect(self.pickle_preprocessed_clicked)
+        self.pickle_preprocessed_button.setCheckable(True)
+        self.pickle_preprocessed_button.setChecked(self.pickle_preprocessed)
+        self.enable_disable.append(self.pickle_preprocessed_button)
+        settings_menu.addAction(self.pickle_preprocessed_button)
+
         # Set up Tabs
         tabs = QTabWidget()
         tabs.setTabPosition(QTabWidget.TabPosition.North)
@@ -1014,6 +1025,7 @@ class MainWindow(QMainWindow):
             'average': True,
             'backbone': False,
             'weight_by_atomic_mass': self.weight_by_atomic_mass,
+            'pickle_preprocessed': self.pickle_preprocessed,
         }
         self.all_settings.append(self.current_simple_settings)
 
@@ -1101,6 +1113,7 @@ class MainWindow(QMainWindow):
             'average': True,
             'backbone': False,
             'weight_by_atomic_mass': self.weight_by_atomic_mass,
+            'pickle_preprocessed': self.pickle_preprocessed,
         }
         self.all_settings.append(self.current_adduct_settings)
 
@@ -1246,6 +1259,7 @@ class MainWindow(QMainWindow):
             'only_chain': False,
             'only_backbone': False,
             'weight_by_atomic_mass': self.weight_by_atomic_mass,
+            'pickle_preprocessed': self.pickle_preprocessed,
         }
 
         plot_pdb_row = QHBoxLayout()
@@ -1345,6 +1359,7 @@ class MainWindow(QMainWindow):
             'average': True,
             'backbone': False,
             'weight_by_atomic_mass': self.weight_by_atomic_mass,
+            'pickle_preprocessed': self.pickle_preprocessed,
         }
         self.current_manual_settings['function'] = available_scoring_functions[self.current_manual_settings.get('function_selected')]
         self.all_settings.append(self.current_manual_settings)
@@ -1573,7 +1588,6 @@ class MainWindow(QMainWindow):
         weight_vector_name_row.addWidget(self.manual_weight_vector_name)
         weight_vector_layout.addLayout(weight_vector_name_row)
 
-
         weight_vector_run_row = QHBoxLayout()
         self.manual_weight_assignment_overwrite = QPushButton('Overwrite assignment vector(s)')
         self.manual_weight_assignment_overwrite.clicked.connect(lambda _, o = True: self.on_manual_weight_assignment_clicked(o))
@@ -1713,7 +1727,6 @@ class MainWindow(QMainWindow):
         manual_calculate.setLayout(self.manual_calculate_form)
         manual.addTab(manual_calculate, 'Exposure Calculation')
 
-
         manual_form.addWidget(manual)
 
         self.manual_output = QTextEdit()
@@ -1730,6 +1743,11 @@ class MainWindow(QMainWindow):
         self.weight_by_atomic_mass = bool(state)
         for sett in self.all_settings:
             sett['weight_by_atomic_mass'] = self.weight_by_atomic_mass
+
+    def pickle_preprocessed_clicked(self, state):
+        self.pickle_preprocessed = bool(state)
+        for sett in self.all_settings:
+            sett['pickle_preprocessed'] = self.pickle_preprocessed
 
     def on_run_simple_clicked(self):
         # gather values

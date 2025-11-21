@@ -5,8 +5,8 @@ from biopandas.mmcif import PandasMmcif
 import matplotlib.pyplot as plt
 import plotly.express as px
 import plotly.graph_objects as go
-import os, math, time, psutil, warnings, plotly
-from scipy.spatial.distance import pdist, cdist
+import os, math, time, psutil, warnings, plotly, pickle
+from scipy.spatial.distance import cdist
 
 from cif_handling import read_raw_cif, split_header_blocks_footer, parse_loops_from_block_with_offsets, loop_to_dataframe, infer_start_columns, infer_decimal_places, write_loop_from_df_aligned, replace_loop_in_block_text, write_cif_from_parts, canonical_atom_site_order, compute_start_cols_standard_first, canonicalize_atom_site_columns
 
@@ -152,7 +152,7 @@ def df_to_cif(outpath, df, cifdata):
 
 def read_pdb_mmcif(filepath: str, append_heteroatoms: 'function' = None) -> PandasPdb | str:
     """
-    Reads pdb or mmcif files and returns a PandasPdb of the contents, as well as the filename.
+    Reads pdb, mmcif, or properly generated pkl files and returns a PandasPdb or dataframe of the contents, as well as the filename and cifdata.
 
     Args:
         filepath (str): The path of the file to be read.
@@ -235,8 +235,20 @@ def read_pdb_mmcif(filepath: str, append_heteroatoms: 'function' = None) -> Pand
                     df = df[df['_atom_site.group_PDB']=='ATOM']
 
         return df, filename, cifdata
+    
+    elif fileext == 'pkl':
+        df = pd.read_pickle(filepath)
+        cifpath = '_cifdata.'.join(filepath.rsplit('.', 1))
+        try:
+            with open(cifpath, 'rb') as f:
+                cifdata = pickle.load(f)
+        except Exception as e:
+            print(f'Error: {e}\nCould not find cifdata')
+
+        return df, filename, cifdata
+
     else:
-        raise ValueError('Wrong file format; allowed file formats are .pdb, .pdb.gz, .ent, .ent.gz, .cif, .cif.gz')
+        raise ValueError('Wrong file format; allowed file formats are .pdb, .pdb.gz, .ent, .ent.gz, .cif, .cif.gz, .pkl')
 
 
 def max_m_for_full_matrix(n: int, fraction_of_avail: float = 0.6, dtype: type = np.float64) -> int:
@@ -264,7 +276,8 @@ def preprocess(pdb_path: str,
                pre_path: str,
                yn: 'function',
                include: list = standard_atoms,
-               redefine_chains: bool = False) -> str:
+               redefine_chains: bool = False,
+               pickle_out: bool = False) -> str:
     """
     Simple preprocessing of pdb and mmcif files. 
     By default, when handling pdb files, it removes all atoms that do not begin with C, N, O, or S; this normally only leaves carbon, nitrogen, oxygen, sulfur, and selenium for biological molecules.
@@ -276,7 +289,9 @@ def preprocess(pdb_path: str,
         pre_path (str): The path of the folder inside which the preprocessed pdb will be saved.
         yn (function): For obtaining user input for yes/no questions.
         include (list, optional): If the first letter of an atom's 'atom_name' entry in the pdb/mmcif file is in this list, it will be included in the preprocessed file. If not, it will be removed.
-        redefine_chains (bool, optional): If true, each chain will be relabeled, starting with A and going on alphabetically.
+        redefine_chains (bool, optional): If True, each chain will be relabeled, starting with A and going on alphabetically.
+        pickle_out (bool, optional): If False, as default, preprocessed files will be saved as pdb/cif files.
+            If True, preprocessed cif files will be saved as a pkl for the main dataframe and an accompanying pkl file for the metadata. This speeds write/read times but makes troubleshooting more difficult.
 
     Returns:
         out_path (str): The path of the saved preprocessed pdb.
@@ -297,13 +312,26 @@ def preprocess(pdb_path: str,
             raise KeyError(f"Expected column '{c}' in ATOM dataframe")
         
     deleted_atoms = set()
+    include_h = 0
     for entry in atoms[atom_name].drop_duplicates().tolist():
         if entry not in include and entry not in deleted_atoms:
-            include_atom = yn(f"Would you like to include atom {entry}?")
-            if include_atom:
-                include.append(entry)
+            if entry[0] == 'H':
+                if include_h == 1:
+                    include.append(entry)
+                elif include_h == 0:
+                    y = yn(f"Would you like to include hydrogen atoms?\nNot Recommended.")
+                    if y:
+                        include.append(entry)
+                        include_h = 1
+                    else:
+                        include_h = 2
+
             else:
-                deleted_atoms.add(entry)
+                include_atom = yn(f"Would you like to include atom {entry}?")
+                if include_atom:
+                    include.append(entry)
+                else:
+                    deleted_atoms.add(entry)
 
         
     # Base mask: atom_name is in include AND occupancy > 0.5
@@ -394,6 +422,13 @@ def preprocess(pdb_path: str,
         atomic_df.df["ATOM"] = atoms.loc[keep_mask].copy()
         out_path = os.path.join(pre_path, f"{filename}.pdb")
         atomic_df.to_pdb(out_path)
+    elif pickle_out:
+        df = atoms.loc[keep_mask].copy()
+        out_path = os.path.join(pre_path, f"{filename}.pkl")
+        df.to_pickle(out_path)
+        cifdata_path = os.path.join(pre_path, f"{filename}_cifdata.pkl")
+        with open(cifdata_path, 'wb') as f:
+            pickle.dump(cifdata, f, protocol=pickle.HIGHEST_PROTOCOL)
     else:
         df = atoms.loc[keep_mask].copy()
         out_path = os.path.join(pre_path, f"{filename}.cif")
