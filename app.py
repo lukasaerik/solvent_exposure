@@ -1352,7 +1352,7 @@ class MainWindow(QMainWindow):
             'preprocessed_path_calculate': '',
             'calculate_folder_path': os.path.join(basedir, 'pdbs', 'out'),
             'function_types': list(available_scoring_functions.keys()),
-            'function_selected': 'Power3',
+            'function_selected': 'Close and far cutoff',
             'calculate_assignment': False,
             'average': True,
             'backbone': False,
@@ -1636,7 +1636,7 @@ class MainWindow(QMainWindow):
         function_type_col.addWidget(label)
         combo = QComboBox()
         combo.addItems(self.current_manual_settings.get('function_types'))
-        op = self.current_manual_settings.get('function_selected', 'Power3')
+        op = self.current_manual_settings.get('function_selected', 'Close and far cutoff')
         idx = combo.findText(op)
         if idx>=0:
             combo.setCurrentIndex(idx)
@@ -2601,7 +2601,7 @@ class MainWindow(QMainWindow):
         function_type_col.addWidget(label)
         combo = QComboBox()
         combo.addItems(self.current_manual_settings.get('function_types'))
-        op = self.current_manual_settings.get('function_selected', 'Power')
+        op = self.current_manual_settings.get('function_selected', 'Close and far cutoff')
         idx = combo.findText(op)
         if idx>=0:
             combo.setCurrentIndex(idx)
@@ -2695,7 +2695,7 @@ class MainWindow(QMainWindow):
                 ass = {'weighted': result}
 
 
-        df_out = max_exposure_score(funcs=temp, assignment=ass, subsample=min(1600, max_m_for_full_matrix(276451,0.8)), yn=self.yes_no, weight_by_amu=self.current_manual_settings.get('weight_by_atomic_mass'))
+        df_out = max_exposure_score(funcs=temp, assignment=ass, subsample=1600, yn=self.yes_no, weight_by_amu=self.current_manual_settings.get('weight_by_atomic_mass'))
 
         self.functions[index]['max_score'].setValue(df_out.iloc[0,0])
         self.manual_output.append(f'Max score calculated: {df_out.iloc[0,0]:.2f}')

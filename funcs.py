@@ -852,27 +852,27 @@ def max_exposure_score(funcs: dict[str, 'function'] | list[dict[str, 'function']
             subsample = 1600
         sampled_indices = np.linspace(0, len(coords_prot_sampled)-1, subsample, dtype=np.uint32)
         coords_prot_sampled = coords_prot_sampled[sampled_indices]
-    
-    if len(coords_prot_sampled) > max_m_for_full_matrix(len(coords_all), 0.85):
-        subsample = max_m_for_full_matrix(len(coords_all), 0.85)
-        print('Subsampling required for memory reasons. Subsampled to {subsample} atoms')
-        sampled_indices = np.linspace(0, len(coords_prot_sampled)-1, subsample, dtype=np.uint32)
-        coords_prot_sampled = coords_prot_sampled[sampled_indices]
-    
+        
     df_out = pd.DataFrame(np.zeros((len(funcs), len(assignment))), index=list(assignment.keys()))
     
-    distances_all = cdist(coords_prot_sampled, coords_all)
+    scores = {}
+    for k,v in assignment.items():
+        scores[k] = np.zeros((len(funcs), len(coords_prot_sampled)))
+
+    for ind, coord in enumerate(coords_prot_sampled):
+        d_cond = cdist([coord], coords_all)
+        for i, d in enumerate(funcs):
+            func = d['scoring_function']
+            constants = d['constants']
+            vals = func(d_cond, constants)
+            for k,v in assignment.items():
+                if weight_by_amu:
+                    v = np.multiply(v, weight_vector)
+                scores[k][i, ind:ind+1] = np.dot(vals, v)
+
     for i, d in enumerate(funcs):
-        func = d['scoring_function']
-        constants = d['constants']
-        vals = func(distances_all, constants)
         for k,v in assignment.items():
-            if weight_by_amu:
-                v = np.multiply(v, weight_vector)
-            scores = np.dot(vals, v)
-            mean = np.mean(scores)
-            std = np.std(scores)
-            df_out.loc[k,i] = mean + n_sigmas * std
+            df_out.loc[k,i] = np.mean(scores[k][i]) + n_sigmas * np.std(scores[k][i])
     
     return df_out
 
@@ -1643,12 +1643,15 @@ def reciprocal_ticks(mn: float,
     return np.array(ticks)
 
 
-available_scoring_functions = {'Power2': {'scoring_function': power_cutoff,
+available_scoring_functions = {'Far cutoff': {'scoring_function': power_cutoff,
                                          'constants': {'power': 2, 'cutoff': 50},
                                          'max_score': {'weight_by_amu': 436.89, 'unweighted': 32.08}},
-                               'Power3': {'scoring_function': power_double_cutoff,
+                               'Close and far cutoff': {'scoring_function': power_double_cutoff,
                                           'constants': {'power': 3, 'cutoff_far': 50, 'cutoff_close': 1.85},
                                           'max_score': {'weight_by_amu': 30, 'unweighted': 2.22}},
+                               'Close cutoff': {'scoring_function': power_close_cutoff,
+                                          'constants': {'power': 3.5, 'cutoff': 1.85},
+                                          'max_score': {'weight_by_amu': 11.82, 'unweighted': 0.87}},
     }
 
 
