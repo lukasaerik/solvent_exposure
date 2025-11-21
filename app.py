@@ -1674,7 +1674,7 @@ class MainWindow(QMainWindow):
 
         button_col = QVBoxLayout()
         reset_row_button = QPushButton('Calc Max Score')
-        reset_row_button.clicked.connect(lambda _, w=m: self._on_calculate_maximum_score_clicked(w, 0))
+        reset_row_button.clicked.connect(lambda _: self._on_calculate_maximum_score_clicked(0))
         button_col.addWidget(reset_row_button)
         add_row_button = QPushButton('Add Function')
         add_row_button.clicked.connect(self._on_manual_add_row)
@@ -1725,6 +1725,10 @@ class MainWindow(QMainWindow):
 
         self.setCentralWidget(tabs)
 
+    ###
+    # General
+    ###
+
     def weight_by_atomic_mass_clicked(self, state):
         self.weight_by_atomic_mass = bool(state)
         for sett in self.all_settings:
@@ -1734,6 +1738,36 @@ class MainWindow(QMainWindow):
         self.pickle_preprocessed = bool(state)
         for sett in self.all_settings:
             sett['pickle_preprocessed'] = self.pickle_preprocessed
+
+    def _on_worker_ask_question(self, text):
+        # This runs on the main thread (slot invoked in main thread)
+        dlg = QMessageBox(self)
+        dlg.setWindowTitle('User Input Required')
+        dlg.setText(text)
+        dlg.setStandardButtons(QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+        dlg.setDefaultButton(QMessageBox.StandardButton.Yes)
+        dlg.setIcon(QMessageBox.Icon.Question)
+        button = dlg.exec()
+        yn = (button == QMessageBox.StandardButton.Yes)
+        # send the answer back to the worker
+        # worker.answer is a signal defined in worker; safe to emit from main thread
+        self.worker.answer.emit(yn)
+
+    def yes_no(self, text):
+        dlg = QMessageBox(self)
+        dlg.setWindowTitle('User Input Required')
+        dlg.setText(text)
+        dlg.setStandardButtons(QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+        dlg.setDefaultButton(QMessageBox.StandardButton.Yes)
+        dlg.setIcon(QMessageBox.Icon.Question)
+        button = dlg.exec()
+        yn = (button == QMessageBox.StandardButton.Yes)
+        return yn
+
+
+    ###
+    # Simple
+    ###
 
     def on_run_simple_clicked(self):
         # gather values
@@ -1791,6 +1825,44 @@ class MainWindow(QMainWindow):
             b.setEnabled(True)
         self.simple_output.append(f'Worker error: {err_str}')
         QMessageBox.critical(self, 'Script error', f'An error occurred:\n{err_str}')
+
+    def _on_simple_average_toggled(self, state):
+        self.simple_average = bool(state)
+        self.current_simple_settings['average'] = self.simple_average
+
+    def _on_simple_backbone_toggled(self, state):
+        self.simple_backbone = bool(state)
+        self.current_simple_settings['backbone'] = self.simple_backbone
+
+    def _browse_file(self):
+        fname, _ = QFileDialog.getOpenFileName(self, 'Select file', self.file_edit.text() or '', 'All Files (*)')
+        if fname:
+            self.file_edit.setText(fname)
+
+    def _browse_pre_folder(self):
+        folder = QFileDialog.getExistingDirectory(self, 'Select folder', self.folder_pre_edit.text() or '')
+        if folder:
+            self.folder_pre_edit.setText(folder)
+            
+    def _browse_out_folder(self):
+        folder = QFileDialog.getExistingDirectory(self, 'Select folder', self.folder_out_edit.text() or '')
+        if folder:
+            self.folder_out_edit.setText(folder)  
+
+    def get_simple_settings(self):
+        # Return a dict of settings
+        return {
+            'pdb_path': self.file_edit.text(),
+            'folder_pre_path': self.folder_pre_edit.text(),
+            'folder_out_path': self.folder_out_edit.text(),
+            'average': self.simple_average,
+            'backbone': self.simple_backbone,
+        }
+    
+
+    ###
+    # Adduct
+    ###
 
     def on_run_adduct_pre_clicked(self):
         # gather values
@@ -1906,14 +1978,6 @@ class MainWindow(QMainWindow):
             b.setEnabled(True)
         QMessageBox.critical(self, 'Script error', f'An error occurred:\n{err_str}')
 
-    def _on_simple_average_toggled(self, state):
-        self.simple_average = bool(state)
-        self.current_simple_settings['average'] = self.simple_average
-
-    def _on_simple_backbone_toggled(self, state):
-        self.simple_backbone = bool(state)
-        self.current_simple_settings['backbone'] = self.simple_backbone
-
     def _on_adduct_average_toggled(self, state):
         self.adduct_average = bool(state)
         self.current_adduct_settings['average'] = self.adduct_average
@@ -1921,6 +1985,37 @@ class MainWindow(QMainWindow):
     def _on_adduct_backbone_toggled(self, state):
         self.adduct_backbone = bool(state)
         self.current_adduct_settings['backbone'] = self.adduct_backbone
+
+    def _browse_adduct_file(self):
+        fname, _ = QFileDialog.getOpenFileName(self, 'Select file', self.adduct_file_edit.text() or '', 'All Files (*)')
+        if fname:
+            self.adduct_file_edit.setText(fname)
+
+    def _browse_adduct_pre_folder(self):
+        folder = QFileDialog.getExistingDirectory(self, 'Select folder', self.adduct_folder_pre_edit.text() or '')
+        if folder:
+            self.adduct_folder_pre_edit.setText(folder)
+            
+    def _browse_adduct_out_folder(self):
+        folder = QFileDialog.getExistingDirectory(self, 'Select folder', self.adduct_folder_out_edit.text() or '')
+        if folder:
+            self.adduct_folder_out_edit.setText(folder)
+
+    def get_adduct_settings(self):
+        return {
+            'pdb_path': self.adduct_file_edit.text(),
+            'folder_pre_path': self.adduct_folder_pre_edit.text(),
+            'folder_out_path': self.adduct_folder_out_edit.text(),
+            'feature': self.adduct_feature.currentText(),
+            'combo': self.combo.currentData(),
+            'average': self.adduct_average,
+            'backbone': self.adduct_backbone,
+        }
+    
+
+    ###
+    # Plot
+    ###
 
     def _on_only_chains_toggled(self, state):
         self.only_chain = bool(state)
@@ -1988,16 +2083,6 @@ class MainWindow(QMainWindow):
         self.plot_output.append(f'Worker error: {err_str}')
         QMessageBox.critical(self, 'Script error', f'An error occurred:\n{err_str}')
 
-    def _browse_file(self):
-        fname, _ = QFileDialog.getOpenFileName(self, 'Select file', self.file_edit.text() or '', 'All Files (*)')
-        if fname:
-            self.file_edit.setText(fname)
-
-    def _browse_adduct_file(self):
-        fname, _ = QFileDialog.getOpenFileName(self, 'Select file', self.adduct_file_edit.text() or '', 'All Files (*)')
-        if fname:
-            self.adduct_file_edit.setText(fname)
-
     def _browse_plot_file(self):
         fname, _ = QFileDialog.getOpenFileName(self, 'Select file', self.plot_pdb_edit.text() or '', 'All Files (*)')
         if fname:
@@ -2006,81 +2091,8 @@ class MainWindow(QMainWindow):
     def _browse_defattr_file(self):
         fname, _ = QFileDialog.getOpenFileName(self, 'Select file', self.plot_defattr_edit.text() or '', 'All Files (*)')
         if fname:
-            self.plot_defattr_edit.setText(fname)
-
-    def _browse_pre_folder(self):
-        folder = QFileDialog.getExistingDirectory(self, 'Select folder', self.folder_pre_edit.text() or '')
-        if folder:
-            self.folder_pre_edit.setText(folder)
-            
-    def _browse_out_folder(self):
-        folder = QFileDialog.getExistingDirectory(self, 'Select folder', self.folder_out_edit.text() or '')
-        if folder:
-            self.folder_out_edit.setText(folder)    
+            self.plot_defattr_edit.setText(fname)  
     
-    def _browse_adduct_pre_folder(self):
-        folder = QFileDialog.getExistingDirectory(self, 'Select folder', self.adduct_folder_pre_edit.text() or '')
-        if folder:
-            self.adduct_folder_pre_edit.setText(folder)
-            
-    def _browse_adduct_out_folder(self):
-        folder = QFileDialog.getExistingDirectory(self, 'Select folder', self.adduct_folder_out_edit.text() or '')
-        if folder:
-            self.adduct_folder_out_edit.setText(folder)
-
-    def _on_worker_ask_question(self, text):
-        # This runs on the main thread (slot invoked in main thread)
-        dlg = QMessageBox(self)
-        dlg.setWindowTitle('User Input Required')
-        dlg.setText(text)
-        dlg.setStandardButtons(QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
-        dlg.setDefaultButton(QMessageBox.StandardButton.Yes)
-        dlg.setIcon(QMessageBox.Icon.Question)
-        button = dlg.exec()
-        yn = (button == QMessageBox.StandardButton.Yes)
-        # send the answer back to the worker
-        # worker.answer is a signal defined in worker; safe to emit from main thread
-        self.worker.answer.emit(yn)
-        
-    def _browse_visuals_file(self):
-        fname, _ = QFileDialog.getOpenFileName(self, 'Select PDB or mmCIF', basedir, "PDB/mmCIF Files (*.pdb *.pdb.gz *.ent *.cif *.cif.gz)")
-        if fname:
-            self.visuals_pdb_edit.setText(fname)
-
-    def _render_embed(self):
-        pdb_path = self.visuals_pdb_edit.text().strip()
-        # print("[DEBUG] Render button clicked. pdb_path:", pdb_path, "python:", sys.executable)
-        if not pdb_path:
-            QMessageBox.warning(self, "No file", "Please select a PDB or mmCIF file first.")
-            return
-        if not Path(pdb_path).exists():
-            QMessageBox.critical(self, "File not found", f"Could not find file:\n{pdb_path}")
-            return
-
-        try:
-            fig = visualize(pdb_path=pdb_path)
-            if fig is None:
-                raise RuntimeError("visualize() returned None")
-        except Exception as e:
-            tb = traceback.format_exc()
-            # print("[ERROR] Exception while building figure:\n", tb)
-            QMessageBox.critical(self, "Visualization error", f"Could not build figure:\n{e}\n\nSee console for traceback.")
-            return
-
-        if not WEBENGINE_AVAILABLE:
-            QMessageBox.information(self, "No WebEngine", "Qt WebEngine not available; use 'Open in Browser' instead.")
-            return
-
-        try:
-            # Use full_html=True so we deliver a complete HTML doc to the QWebEngineView.
-            html = fig.to_html(include_plotlyjs='inline', full_html=True)
-            self._show_html_in_file(html)
-            # print("[DEBUG] setHtml called and reload requested.")
-        except Exception as e:
-            tb = traceback.format_exc()
-            # print("[ERROR] Exception while embedding HTML:\n", tb)
-            QMessageBox.critical(self, "Embed error", f"Could not embed figure:\n{e}\n\nSee console for traceback.")
-
     def _render_plot_embed(self):
         updated_settings = self.get_plot_settings()
         for k in updated_settings:
@@ -2128,6 +2140,74 @@ class MainWindow(QMainWindow):
             print("[ERROR] Exception while embedding HTML:\n", tb)
             QMessageBox.critical(self, "Embed error", f"Could not embed figure:\n{e}\n\nSee console for traceback.")
 
+    def _show_plot_html_in_file(self, html: str):
+        tmpdir = tempfile.gettempdir()
+        fname = f"plot_{uuid4().hex}.html"
+        path = os.path.join(tmpdir, fname)
+        with open(path, "w", encoding="utf-8") as fh:
+            fh.write(html)
+        # load as file URL so a fresh document is created
+        self.plot_view.setUrl(QUrl.fromLocalFile(path))
+
+    def get_plot_settings(self):
+        if self.only_chain:
+            return {
+            'pdb_path': self.plot_pdb_edit.text(),
+            'defattr_path': self.plot_defattr_edit.text(),
+            'only_chain': self.only_chain_combo.currentData(),
+            'only_backbone': self.only_backbone,
+        }
+        else:
+            return {
+            'pdb_path': self.plot_pdb_edit.text(),
+            'defattr_path': self.plot_defattr_edit.text(),
+            'only_backbone': self.only_backbone,
+        }
+
+       
+    ###
+    # Visualize
+    ###
+ 
+    def _browse_visuals_file(self):
+        fname, _ = QFileDialog.getOpenFileName(self, 'Select PDB or mmCIF', basedir, "PDB/mmCIF Files (*.pdb *.pdb.gz *.ent *.cif *.cif.gz)")
+        if fname:
+            self.visuals_pdb_edit.setText(fname)
+
+    def _render_embed(self):
+        pdb_path = self.visuals_pdb_edit.text().strip()
+        # print("[DEBUG] Render button clicked. pdb_path:", pdb_path, "python:", sys.executable)
+        if not pdb_path:
+            QMessageBox.warning(self, "No file", "Please select a PDB or mmCIF file first.")
+            return
+        if not Path(pdb_path).exists():
+            QMessageBox.critical(self, "File not found", f"Could not find file:\n{pdb_path}")
+            return
+
+        try:
+            fig = visualize(pdb_path=pdb_path)
+            if fig is None:
+                raise RuntimeError("visualize() returned None")
+        except Exception as e:
+            tb = traceback.format_exc()
+            # print("[ERROR] Exception while building figure:\n", tb)
+            QMessageBox.critical(self, "Visualization error", f"Could not build figure:\n{e}\n\nSee console for traceback.")
+            return
+
+        if not WEBENGINE_AVAILABLE:
+            QMessageBox.information(self, "No WebEngine", "Qt WebEngine not available; use 'Open in Browser' instead.")
+            return
+
+        try:
+            # Use full_html=True so we deliver a complete HTML doc to the QWebEngineView.
+            html = fig.to_html(include_plotlyjs='inline', full_html=True)
+            self._show_html_in_file(html)
+            # print("[DEBUG] setHtml called and reload requested.")
+        except Exception as e:
+            tb = traceback.format_exc()
+            # print("[ERROR] Exception while embedding HTML:\n", tb)
+            QMessageBox.critical(self, "Embed error", f"Could not embed figure:\n{e}\n\nSee console for traceback.")
+
     def _show_html_in_file(self, html: str):
         tmpdir = tempfile.gettempdir()
         fname = f"plot_{uuid4().hex}.html"
@@ -2137,14 +2217,10 @@ class MainWindow(QMainWindow):
         # load as file URL so a fresh document is created
         self.visuals_view.setUrl(QUrl.fromLocalFile(path))
 
-    def _show_plot_html_in_file(self, html: str):
-        tmpdir = tempfile.gettempdir()
-        fname = f"plot_{uuid4().hex}.html"
-        path = os.path.join(tmpdir, fname)
-        with open(path, "w", encoding="utf-8") as fh:
-            fh.write(html)
-        # load as file URL so a fresh document is created
-        self.plot_view.setUrl(QUrl.fromLocalFile(path))
+
+    ###
+    # Manual
+    ###
 
     def _browse_manual_preprocess_file(self):
         fname, _ = QFileDialog.getOpenFileName(self, 'Select file', self.manual_preprocess_file_edit.text() or '', 'All Files (*)')
@@ -2220,8 +2296,6 @@ class MainWindow(QMainWindow):
         for b in self.enable_disable:
             b.setEnabled(True)
         QMessageBox.critical(self, 'Script error', f'An error occurred:\n{err_str}')
-
-
 
     def on_manual_assignment_reset_clicked(self):
         dlg = QMessageBox(self)
@@ -2305,8 +2379,6 @@ class MainWindow(QMainWindow):
         for b in self.enable_disable:
             b.setEnabled(True)
 
-
-
     def _on_three_feature_changed(self):
         self.manual_three_include_combo.clear()
         tempfeature = features(self.manual_assignment_file_edit.text(), feature = self.manual_three_feature_combo.currentText(), yn=True)
@@ -2363,7 +2435,6 @@ class MainWindow(QMainWindow):
         self.manual_assignment_file_edit.setEnabled(True)
         for b in self.enable_disable:
             b.setEnabled(True)
-
 
     def _on_component_feature_changed(self, index):
         self.weight_vectors[index]['include_combo'].clear()
@@ -2487,8 +2558,6 @@ class MainWindow(QMainWindow):
 
         self.weight_vector_components.insertWidget(index, v)
 
-
-
     def _browse_manual_calculate_file(self):
         fname, _ = QFileDialog.getOpenFileName(self, 'Select file', self.manual_calculate_file_edit.text() or '', 'All Files (*)')
         if fname:
@@ -2511,7 +2580,7 @@ class MainWindow(QMainWindow):
         self.calculate_backbone = bool(state)
         self.current_manual_settings['backbone'] = self.calculate_backbone
 
-    def _on_manual_remove_row(self, widget, index):
+    def _on_manual_remove_row(self, widget):
         if widget is not None:
             # Remove it from the layout and delete it
 
@@ -2572,7 +2641,7 @@ class MainWindow(QMainWindow):
 
             button_col = QVBoxLayout()
             reset_row_button = QPushButton('Calc Max Score')
-            reset_row_button.clicked.connect(lambda _, w=m, i=index: self._on_calculate_maximum_score_clicked(w,i))
+            reset_row_button.clicked.connect(lambda _, i=index: self._on_calculate_maximum_score_clicked(i))
             button_col.addWidget(reset_row_button)
             if index == 0:
                 add_row_button = QPushButton('Add Function')
@@ -2580,14 +2649,13 @@ class MainWindow(QMainWindow):
                 button_col.addWidget(add_row_button)
             else:
                 remove_row_button = QPushButton('Remove Function')
-                remove_row_button.clicked.connect(lambda _, w=m, i=index: self._on_manual_remove_row(w, i))
+                remove_row_button.clicked.connect(lambda _, w=m: self._on_manual_remove_row(w))
                 button_col.addWidget(remove_row_button)
             manual_function.addLayout(button_col)
             m.setLayout(manual_function)
 
             self.manual_functions.replaceWidget(widget, m)
-            self._on_manual_remove_row(widget, index)
-
+            self._on_manual_remove_row(widget)
 
     def _on_manual_add_row(self):
         index = self.manual_functions.count()
@@ -2639,17 +2707,17 @@ class MainWindow(QMainWindow):
 
         button_col = QVBoxLayout()
         reset_row_button = QPushButton('Calc Max Score')
-        reset_row_button.clicked.connect(lambda _, w=m, i=index: self._on_calculate_maximum_score_clicked(w,i))
+        reset_row_button.clicked.connect(lambda _, i=index: self._on_calculate_maximum_score_clicked(i))
         button_col.addWidget(reset_row_button)
         remove_row_button = QPushButton('Remove Function')
-        remove_row_button.clicked.connect(lambda _, w=m, i=index: self._on_manual_remove_row(w,i))
+        remove_row_button.clicked.connect(lambda _, w=m: self._on_manual_remove_row(w))
         button_col.addWidget(remove_row_button)
         manual_function.addLayout(button_col)
         m.setLayout(manual_function)
 
         self.manual_functions.insertWidget(index, m)
 
-    def _on_calculate_maximum_score_clicked(self, widget, index):
+    def _on_calculate_maximum_score_clicked(self, index):
         updated_settings = self.get_manual_settings()
         for k in updated_settings:
             self.current_manual_settings[k] = updated_settings.get(k)
@@ -2702,18 +2770,6 @@ class MainWindow(QMainWindow):
         if df_out.shape != (1,1):
             self.manual_output.append(f'{df_out}')
             self.manual_output.append('WARNING: multiple assignment vectors provided for max score calculation. First entry used to set max score.')
-
-    def yes_no(self, text):
-        dlg = QMessageBox(self)
-        dlg.setWindowTitle('User Input Required')
-        dlg.setText(text)
-        dlg.setStandardButtons(QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
-        dlg.setDefaultButton(QMessageBox.StandardButton.Yes)
-        dlg.setIcon(QMessageBox.Icon.Question)
-        button = dlg.exec()
-        yn = (button == QMessageBox.StandardButton.Yes)
-        return yn
-
 
     def on_run_manual_calculate_clicked(self):
         # gather values
@@ -2772,10 +2828,6 @@ class MainWindow(QMainWindow):
             b.setEnabled(True)
         QMessageBox.critical(self, 'Script error', f'An error occurred:\n{err_str}')
 
-
-
-
-
     def get_manual_settings(self):
         f = []
         for i in range(self.manual_functions.count()):
@@ -2814,41 +2866,7 @@ class MainWindow(QMainWindow):
             'funcs': f,
         }
 
-    def get_simple_settings(self):
-        # Return a dict of settings
-        return {
-            'pdb_path': self.file_edit.text(),
-            'folder_pre_path': self.folder_pre_edit.text(),
-            'folder_out_path': self.folder_out_edit.text(),
-            'average': self.simple_average,
-            'backbone': self.simple_backbone,
-        }
-    
-    def get_adduct_settings(self):
-        return {
-            'pdb_path': self.adduct_file_edit.text(),
-            'folder_pre_path': self.adduct_folder_pre_edit.text(),
-            'folder_out_path': self.adduct_folder_out_edit.text(),
-            'feature': self.adduct_feature.currentText(),
-            'combo': self.combo.currentData(),
-            'average': self.adduct_average,
-            'backbone': self.adduct_backbone,
-        }
-    
-    def get_plot_settings(self):
-        if self.only_chain:
-            return {
-            'pdb_path': self.plot_pdb_edit.text(),
-            'defattr_path': self.plot_defattr_edit.text(),
-            'only_chain': self.only_chain_combo.currentData(),
-            'only_backbone': self.only_backbone,
-        }
-        else:
-            return {
-            'pdb_path': self.plot_pdb_edit.text(),
-            'defattr_path': self.plot_defattr_edit.text(),
-            'only_backbone': self.only_backbone,
-        }
+
 
 app = QApplication(sys.argv)
 app.setWindowIcon(QIcon(os.path.join(basedir, "standards", "icon.png")))
