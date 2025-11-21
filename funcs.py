@@ -8,7 +8,10 @@ import plotly.graph_objects as go
 import os, math, time, psutil, warnings, plotly, pickle
 from scipy.spatial.distance import cdist
 
-from cif_handling import read_raw_cif, split_header_blocks_footer, parse_loops_from_block_with_offsets, loop_to_dataframe, infer_start_columns, infer_decimal_places, write_loop_from_df_aligned, replace_loop_in_block_text, write_cif_from_parts, canonical_atom_site_order, compute_start_cols_standard_first, canonicalize_atom_site_columns
+from cif_handling import (read_raw_cif, split_header_blocks_footer, parse_loops_from_block_with_offsets,
+                          loop_to_dataframe, infer_start_columns, infer_decimal_places, write_loop_from_df_aligned, 
+                          replace_loop_in_block_text, write_cif_from_parts, canonical_atom_site_order, 
+                          compute_start_cols_standard_first, canonicalize_atom_site_columns)
 
 basedir = os.path.dirname(__file__)
 standard_residues = ['LYS', 'LEU', 'THR', 'TYR', 'PRO', 'GLU', 'ASP', 'ILE', 'ALA', 'PHE', 'ARG',

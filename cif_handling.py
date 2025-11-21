@@ -6,27 +6,6 @@ CIF_MISSING_TOKENS = {'.', '?'}
 _FLOAT_RE = re.compile(r'^[+-]?(?:\d+(\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?$')
 _INT_RE = re.compile(r'^[+-]?\d+$')
 
-def cif_safe_token(value: str) -> str:
-    """
-    Return a CIF-safe string token.
-    Always quote atom-like tokens containing a single quote (e.g. O5') as "O5'".
-    Also quote tokens containing whitespace, '#', ';', or starting with a semicolon.
-    """
-    s = str(value)
-
-    # If the value contains a single quote (like O5'), we quote with double quotes
-    # to avoid breaking CIF parsing.
-    if "'" in s:
-        return f'"{s}"'
-
-    # If it contains spaces, #, ;, or starts with a semicolon or is empty, quote with single quotes
-    if any(ch.isspace() for ch in s) or s.startswith(';') or s == '' or s.startswith('#'):
-        s_escaped = s.replace("'", "''")
-        return f"'{s_escaped}'"
-
-    # Otherwise safe as-is
-    return s
-
 
 def read_raw_cif(path: str) -> str:
     """
@@ -394,6 +373,28 @@ def infer_decimal_places(loop_info: Dict[str, Any], df: pd.DataFrame) -> Dict[st
     return decimals
 
 
+def cif_safe_token(value: str) -> str:
+    """
+    Return a CIF-safe string token.
+    Always quote atom-like tokens containing a single quote (e.g. O5') as "O5'".
+    Also quote tokens containing whitespace, '#', ';', or starting with a semicolon.
+    """
+    s = str(value)
+
+    # If the value contains a single quote (like O5'), we quote with double quotes
+    # to avoid breaking CIF parsing.
+    if "'" in s:
+        return f'"{s}"'
+
+    # If it contains spaces, #, ;, or starts with a semicolon or is empty, quote with single quotes
+    if any(ch.isspace() for ch in s) or s.startswith(';') or s == '' or s.startswith('#'):
+        s_escaped = s.replace("'", "''")
+        return f"'{s_escaped}'"
+
+    # Otherwise safe as-is
+    return s
+
+
 def write_loop_from_df_aligned(df: pd.DataFrame,
                                loop_info: Dict[str, Any],
                                tag_order: List[str] = None,
@@ -705,19 +706,5 @@ def compute_start_cols_standard_first(old_start_cols: Dict[str,int],
 
     # Ensure the returned mapping contains entries for all tags in new_tag_order (in that order)
     return {t: int(new_starts[t]) for t in new_tag_order}
-
-
-def reorder_df_to_canonical(df: pd.DataFrame, canonical_order: List[str]) -> pd.DataFrame:
-    """
-    Return a DataFrame with columns reordered according to canonical_order.
-    Any columns present in canonical_order but missing in df will be created filled with pd.NA.
-    Any extra columns present in df but not in canonical_order are appended (in original order).
-    """
-    # columns to ensure present in result (preserve df columns not mentioned)
-    extra_cols = [c for c in df.columns if c not in canonical_order]
-    # build final order: all canonical + extras
-    desired = [c for c in canonical_order] + extra_cols
-    # reindex will add missing columns with NaN (pd.NA preserved by dtype semantics)
-    return df.reindex(columns=desired)
 
 
