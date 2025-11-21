@@ -1341,8 +1341,6 @@ class MainWindow(QMainWindow):
         self.current_manual_settings = {
             'preprocess_file_path': os.path.join(basedir, 'pdbs', 'in', '1u7g.pdb'),
             'preprocess_folder_path': os.path.join(basedir, 'pdbs', 'preprocessed'),
-            'preprocess_include_options': ['C', 'N', 'O', 'S'],
-            'preprocess_include_selected':['C', 'N', 'O', 'S'],
             'preprocess_redefine_chains': False,
             'preprocessed_path_assignment': '',
             'single_include': '',
@@ -1397,18 +1395,6 @@ class MainWindow(QMainWindow):
         manual_preprocess_folder_row.addWidget(self.manual_preprocess_folder_edit)
         manual_preprocess_folder_row.addWidget(self.manual_preprocess_folder_browse)
         manual_preprocess_form.addLayout(manual_preprocess_folder_row)
-
-        # Included atoms selection
-        preprocess_include_row = QHBoxLayout()
-        preprocess_include_row.addWidget(QLabel('Include atoms which start with:'))
-        self.preprocess_include_combo = CheckableAddComboBox()
-        self.preprocess_include_combo.addItems(self.current_manual_settings.get('preprocess_include_options', ['C', 'N', 'O', 'S']))
-        self.preprocess_include_combo.ensureAddRow()
-        for i in range(self.preprocess_include_combo.model().rowCount()-1):
-            if self.preprocess_include_combo.model().item(i).text() in self.current_manual_settings.get('preprocess_include_selected', ['C', 'N', 'O', 'S']):
-                self.preprocess_include_combo.model().item(i).setCheckState(Qt.CheckState.Checked)
-        preprocess_include_row.addWidget(self.preprocess_include_combo)
-        # manual_preprocess_form.addLayout(preprocess_include_row)
 
         # Relabel chains checkbox
         self.preprocess_redefine_chains_checkbox = QCheckBox('Relabel chains alphabetically?')
@@ -2183,7 +2169,6 @@ class MainWindow(QMainWindow):
         # disable run button while running
         self.manual_preprocess_file_browse.setEnabled(False)
         self.manual_preprocess_folder_browse.setEnabled(False)
-        self.preprocess_include_combo.setEnabled(False)
         self.preprocess_redefine_chains_checkbox.setEnabled(False)
         for b in self.enable_disable:
             b.setEnabled(False)
@@ -2212,7 +2197,6 @@ class MainWindow(QMainWindow):
         # re-enable run button
         self.manual_preprocess_file_browse.setEnabled(True)
         self.manual_preprocess_folder_browse.setEnabled(True)
-        self.preprocess_include_combo.setEnabled(True)
         self.preprocess_redefine_chains_checkbox.setEnabled(True)
         for b in self.enable_disable:
             b.setEnabled(True)
@@ -2232,7 +2216,6 @@ class MainWindow(QMainWindow):
     def on_worker_manual_preprocess_error(self, err_str):
         self.manual_preprocess_file_browse.setEnabled(True)
         self.manual_preprocess_folder_browse.setEnabled(True)
-        self.preprocess_include_combo.setEnabled(True)
         self.preprocess_redefine_chains_checkbox.setEnabled(True)
         for b in self.enable_disable:
             b.setEnabled(True)
@@ -2816,7 +2799,6 @@ class MainWindow(QMainWindow):
         return {
             'preprocess_file_path': self.manual_preprocess_file_edit.text(),
             'preprocess_folder_path': self.manual_preprocess_folder_edit.text(),
-            'preprocess_include_selected': self.preprocess_include_combo.currentData(),
             'preprocess_redefine_chains': self.preprocess_redefine_chains,
             'preprocessed_path_assignment': self.manual_assignment_file_edit.text(),
             'single_include': self.manual_single_include_combo.currentData(),
