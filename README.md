@@ -3,6 +3,12 @@
 Simple tools to handle pdbs/mmcifs and calculate solvent exposure scores
 
 ## Installation
+
+Software dependencies: Python (tested on 3.13.9) and the packages listed below.
+Tested on Python 3.13.9 on Windows 11, Mac OS Sequioa and Tahoe, and Ubuntu 24.04.1 LTS.
+With python installed, installation takes under 10 minutes on all computers tested.
+Hardware requirements: a standard computer with enough RAM to support the atomic models provided.
+
 ### In python
 
 I recommend running this in its own environment. I will give examples for Anaconda/Miniconda, but use your own systems and pip if preferred.
@@ -42,7 +48,7 @@ If you wish to compile your code, with your own modifications and default settin
 conda install -c conda-forge pyinstaller
 ```
 
-### Running as a standalone app
+### Running as a standalone app (future)
 
 It is, in principle, possible to run the GUI version as a standalone app without requiring local python installation. This is designed to make it easier for more users to calculate solvent exposures, but has a few downsides, for example:
 * It is not possible to change default settings
@@ -63,6 +69,8 @@ Under settings, you can decide whether to weight the contributions to exposure s
 ```cif_handling.py``` contains the background functions necessary to read, write, and manipulate mmCIF (.cif) files.
 
 As standard, raw (input) pdb/cif files can be placed into ```/pdbs/in/``` and calculated defattr files can be placed into ```/pdbs/out/defattrs/```. Preprocessed files are automatically saved to ```/pdbs/preprocessed/``` and files where solvent exposure has been calculated are saved to ```/pdbs/out/```. Standards used for calculating maximum scores are saved under ```/standards/```.
+
+Calculation run times for protein assemblies on the order of 100 kDa to 1 MDa take 1 to 10 seconds to calculate (per scoring function) on the computers tested. Larger systems (tested up to PDB entry 9FQR, 86,760.19 kDa) take longer.
 
 ## Visualising solvent exposure
 
